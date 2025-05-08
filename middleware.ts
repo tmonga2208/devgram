@@ -1,10 +1,21 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
+import { jwtVerify } from 'jose'
 
 // Add paths that require authentication
-const protectedPaths = ['/settings']
+const protectedPaths = [
+  '/settings',
+  '/profile',
+  '/messages',
+  '/notifications',
+  '/create-post',
+  '/edit-profile'
+]
 
-export function middleware(request: NextRequest) {
+// Add paths that should redirect to home if user is already authenticated
+const authPaths = ['/login', '/signup', '/forgot-password']
+
+export async function middleware(request: NextRequest) {
   const token = request.cookies.get('token')
   const { pathname } = request.nextUrl
 
@@ -15,6 +26,33 @@ export function middleware(request: NextRequest) {
       const loginUrl = new URL('/login', request.url)
       loginUrl.searchParams.set('from', pathname)
       return NextResponse.redirect(loginUrl)
+    }
+
+    try {
+      // Verify token
+      const secret = new TextEncoder().encode(process.env.JWT_SECRET)
+      await jwtVerify(token.value, secret)
+    } catch {
+      // Token is invalid or expired
+      const response = NextResponse.redirect(new URL('/login', request.url))
+      response.cookies.delete('token')
+      return response
+    }
+  }
+
+  // Redirect authenticated users away from auth pages
+  if (authPaths.some(path => pathname.startsWith(path))) {
+    if (token) {
+      try {
+        const secret = new TextEncoder().encode(process.env.JWT_SECRET)
+        await jwtVerify(token.value, secret)
+        return NextResponse.redirect(new URL('/', request.url))
+      } catch {
+        // Token is invalid, clear it
+        const response = NextResponse.next()
+        response.cookies.delete('token')
+        return response
+      }
     }
   }
 

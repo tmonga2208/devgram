@@ -1,7 +1,6 @@
 "use client"
 
 import type React from "react"
-
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import Image from "next/image"
@@ -11,20 +10,19 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { mockUsers } from "@/lib/mock-data"
+import { useAuth } from "@/contexts/auth-context"
+import toast from "react-hot-toast"
 
 export function EditProfileForm() {
   const router = useRouter()
+  const { user, updateProfile } = useAuth()
   const [isSubmitting, setIsSubmitting] = useState(false)
 
-  // Use the first mock user as the current user
-  const user = mockUsers[0]
-
   const [formData, setFormData] = useState({
-    fullName: user.fullName,
-    username: user.username,
-    website: user.website || "",
-    bio: user.bio,
+    fullName: user?.fullName || "",
+    username: user?.username || "",
+    website: user?.website || "",
+    bio: user?.bio || "",
   })
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -32,15 +30,28 @@ export function EditProfileForm() {
     setFormData((prev) => ({ ...prev, [name]: value }))
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsSubmitting(true)
 
-    // Simulate form submission
-    setTimeout(() => {
+    try {
+      const promise = updateProfile(formData)
+      toast.promise(promise, {
+        loading: 'Updating profile...',
+        success: 'Profile updated successfully!',
+        error: 'Failed to update profile',
+      })
+      await promise
+      router.push(`/profile/${formData.username}`)
+    } catch (error) {
+      console.error('Profile update error:', error)
+    } finally {
       setIsSubmitting(false)
-      router.push(`/profile/${user.username}`)
-    }, 1500)
+    }
+  }
+
+  if (!user) {
+    return null
   }
 
   return (
@@ -55,7 +66,12 @@ export function EditProfileForm() {
             <div className="flex flex-col items-center gap-4">
               <div className="relative">
                 <div className="relative h-24 w-24 overflow-hidden rounded-full">
-                  <Image src={user.avatar || "/placeholder.svg"} alt={user.username} fill className="object-cover" />
+                  <Image 
+                    src={user.avatar || "/placeholder.svg"} 
+                    alt={user.username} 
+                    fill 
+                    className="object-cover" 
+                  />
                 </div>
                 <Button variant="secondary" size="icon" className="absolute bottom-0 right-0 h-8 w-8 rounded-full">
                   <Camera className="h-4 w-4" />
@@ -67,12 +83,22 @@ export function EditProfileForm() {
 
             <div className="space-y-2">
               <Label htmlFor="fullName">Name</Label>
-              <Input id="fullName" name="fullName" value={formData.fullName} onChange={handleChange} />
+              <Input 
+                id="fullName" 
+                name="fullName" 
+                value={formData.fullName} 
+                onChange={handleChange} 
+              />
             </div>
 
             <div className="space-y-2">
               <Label htmlFor="username">Username</Label>
-              <Input id="username" name="username" value={formData.username} onChange={handleChange} />
+              <Input 
+                id="username" 
+                name="username" 
+                value={formData.username} 
+                onChange={handleChange} 
+              />
             </div>
 
             <div className="space-y-2">
@@ -88,7 +114,13 @@ export function EditProfileForm() {
 
             <div className="space-y-2">
               <Label htmlFor="bio">Bio</Label>
-              <Textarea id="bio" name="bio" value={formData.bio} onChange={handleChange} rows={4} />
+              <Textarea 
+                id="bio" 
+                name="bio" 
+                value={formData.bio} 
+                onChange={handleChange} 
+                rows={4} 
+              />
             </div>
           </form>
         </CardContent>

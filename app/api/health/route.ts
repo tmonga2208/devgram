@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server';
-import connectDB from '@/lib/mongodb';
+import { connectToDatabase } from '@/lib/mongodb';
 import mongoose from 'mongoose';
 
 export async function GET() {
   try {
-    await connectDB();
+    await connectToDatabase();
     
     const status = {
       status: 'ok',

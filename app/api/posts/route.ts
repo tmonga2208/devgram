@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from 'next/server';
-import connectDB from '@/lib/mongodb';
+import { NextResponse } from 'next/server';
+import { connectToDatabase } from '@/lib/mongodb';
 import Post from '@/models/Post';
 import { authMiddleware, AuthRequest } from '@/middleware/auth';
 import Notification from '@/models/Notification';
@@ -24,9 +24,9 @@ function extractMentions(text: string): string[] {
 }
 
 // Get all posts
-export async function GET(req: AuthRequest) {
+export async function GET() {
   try {
-    await connectDB();
+    await connectToDatabase();
     
     const posts = await Post.find()
       .sort({ createdAt: -1 })
@@ -52,37 +52,41 @@ export async function POST(req: AuthRequest) {
       return authResponse;
     }
     
-    await connectDB();
+    await connectToDatabase();
     
-    const { content, image } = await req.json();
+    const { caption, image, video, code, language } = await req.json();
     
-    if (!content && !image) {
+    if (!caption) {
       return NextResponse.json(
-        { error: 'Post must have either content or image' },
+        { error: 'Caption is required for posts' },
         { status: 400 }
       );
     }
     
     // Create the post
     const post = await Post.create({
-      author: req.user?.username,
-      content,
-      image
+      author: {
+        username: req.user?.username,
+        avatar: req.user?.avatar|| "hi",
+      },
+      caption,
+      image,
+      video,
+      code,
+      language
     });
     
     // Check for mentions and create notifications
-    if (content) {
-      const mentions = extractMentions(content);
-      for (const mentionedUser of mentions) {
-        if (mentionedUser !== req.user?.username) {
-          await createNotification(
-            req.user?.username || '',
-            mentionedUser,
-            'mention',
-            'mentioned you in a post',
-            post._id.toString()
-          );
-        }
+    const mentions = extractMentions(caption);
+    for (const mentionedUser of mentions) {
+      if (mentionedUser !== req.user?.username) {
+        await createNotification(
+          req.user?.username || '',
+          mentionedUser,
+          'mention',
+          'mentioned you in a post',
+          post._id.toString()
+        );
       }
     }
     

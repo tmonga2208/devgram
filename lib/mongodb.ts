@@ -1,6 +1,6 @@
 import mongoose from 'mongoose';
 
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/devgram';
+const MONGODB_URI = process.env.MONGODB_URI!;
 
 if (!MONGODB_URI) {
   throw new Error('Please define the MONGODB_URI environment variable inside .env');
@@ -12,7 +12,7 @@ interface Cached {
 }
 
 declare global {
-  var mongoose: { conn: null | typeof mongoose; promise: null | Promise<typeof mongoose> };
+  var mongoose: Cached;
 }
 
 let cached: Cached = global.mongoose || { conn: null, promise: null };
@@ -21,7 +21,7 @@ if (!global.mongoose) {
   global.mongoose = cached;
 }
 
-async function connectDB() {
+export async function connectToDatabase() {
   if (cached.conn) {
     return cached.conn;
   }
@@ -44,6 +44,4 @@ async function connectDB() {
   }
 
   return cached.conn;
-}
-
-export default connectDB; 
+} 

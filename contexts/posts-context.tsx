@@ -2,52 +2,27 @@
 
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { useAuth } from './auth-context';
-
-interface Comment {
-  _id: string;
-  username: string;
-  avatar: string;
-  text: string;
-  likes: number;
-  createdAt: string;
-}
-
-interface Post {
-  _id: string;
-  author: {
-    username: string;
-    avatar: string;
-  };
-  image?: string;
-  code?: string;
-  language?: string;
-  caption: string;
-  likes: number;
-  comments: Comment[];
-  createdAt: string;
-  liked: boolean;
-  saved: boolean;
-}
+import type { PostType, CommentType } from "@/lib/types"
 
 interface PostsContextType {
-  posts: Post[];
+  posts: PostType[];
   loading: boolean;
   error: string | null;
   fetchPosts: () => Promise<void>;
-  createPost: (data: { image?: string; code?: string; language?: string; caption: string }) => Promise<void>;
-  likePost: (postId: string) => Promise<void>;
+  createPost: (data: Partial<PostType>) => Promise<void>;
+  likePost: (postId: string) => Promise<PostType>;
   savePost: (postId: string) => Promise<void>;
-  addComment: (postId: string, text: string) => Promise<void>;
+  addComment: (postId: string, text: string) => Promise<CommentType>;
   deletePost: (postId: string) => Promise<void>;
 }
 
 const PostsContext = createContext<PostsContextType | undefined>(undefined);
 
 export function PostsProvider({ children }: { children: ReactNode }) {
-  const [posts, setPosts] = useState<Post[]>([]);
+  const [posts, setPosts] = useState<PostType[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const { token } = useAuth();
+  const { token, user } = useAuth();
 
   const fetchPosts = async () => {
     try {
@@ -68,7 +43,7 @@ export function PostsProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const createPost = async (data: { image?: string; code?: string; language?: string; caption: string }) => {
+  const createPost = async (data: Partial<PostType>) => {
     try {
       const response = await fetch('/api/posts', {
         method: 'POST',
@@ -93,49 +68,49 @@ export function PostsProvider({ children }: { children: ReactNode }) {
 
   const likePost = async (postId: string) => {
     try {
-      const response = await fetch(`/api/posts/${postId}`, {
-        method: 'PATCH',
+      const response = await fetch(`/api/posts/${postId}/like`, {
+        method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
         },
-        body: JSON.stringify({ action: 'like' }),
-      });
-      
+      })
+
       if (!response.ok) {
-        throw new Error('Failed to like post');
+        throw new Error('Failed to like post')
       }
+
+      const updatedPost = await response.json()
       
-      const updatedPost = await response.json();
-      setPosts(prevPosts => 
-        prevPosts.map(post => 
-          post._id === postId ? updatedPost : post
-        )
-      );
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to like post');
+      // Update the post in the posts array
+      setPosts(posts.map(post => 
+        post._id === postId ? {
+          ...post,
+          likes: updatedPost.likes,
+          likedBy: updatedPost.likedBy
+        } : post
+      ))
+
+      return updatedPost
+    } catch (error) {
+      console.error('Error liking post:', error)
+      throw error
     }
-  };
+  }
 
   const savePost = async (postId: string) => {
     try {
-      const response = await fetch(`/api/posts/${postId}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({ action: 'save' }),
+      const response = await fetch(`/api/posts/${postId}/save`, {
+        method: 'POST',
       });
       
       if (!response.ok) {
         throw new Error('Failed to save post');
       }
       
-      const updatedPost = await response.json();
       setPosts(prevPosts => 
         prevPosts.map(post => 
-          post._id === postId ? updatedPost : post
+          post._id === postId ? { ...post, saved: !post.saved } : post
         )
       );
     } catch (err) {
@@ -143,29 +118,32 @@ export function PostsProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const addComment = async (postId: string, text: string) => {
+  const addComment = async (postId: string, text: string): Promise<CommentType> => {
     try {
-      const response = await fetch(`/api/posts/${postId}`, {
-        method: 'PATCH',
+      const response = await fetch(`/api/posts/${postId}/comments`, {
+        method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
         },
-        body: JSON.stringify({ action: 'comment', comment: text }),
+        body: JSON.stringify({ text }),
       });
       
       if (!response.ok) {
         throw new Error('Failed to add comment');
       }
       
-      const updatedPost = await response.json();
+      const newComment = await response.json();
       setPosts(prevPosts => 
         prevPosts.map(post => 
-          post._id === postId ? updatedPost : post
+          post._id === postId ? { ...post, comments: [...post.comments, newComment] } : post
         )
       );
+
+      return newComment;
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to add comment');
+      throw err;
     }
   };
 

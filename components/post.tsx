@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Heart, MessageCircle, Bookmark, MoreHorizontal, Code, Image as ImageIcon } from "lucide-react"
+import { Heart, MessageCircle, Bookmark, MoreHorizontal, Code, Image as ImageIcon, Video as VideoIcon } from "lucide-react"
 import { formatDistanceToNow } from "date-fns"
 import { usePosts } from "@/contexts/posts-context"
 import { useAuth } from "@/contexts/auth-context"
@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Separator } from "@/components/ui/separator"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { CodeBlock } from "@/components/code-block"
+import { VideoPlayer } from "@/components/video-player"
 import toast from "react-hot-toast"
 
 interface PostProps {
@@ -22,6 +23,7 @@ interface PostProps {
       avatar: string;
     };
     image?: string;
+    video?: string;
     code?: string;
     language?: string;
     caption: string;
@@ -35,9 +37,9 @@ interface PostProps {
       createdAt: string;
     }>;
     createdAt: string;
-    liked: boolean;
+    likedBy: Array<string>;
     saved: boolean;
-  };
+  } & { [key: string]: any };
 }
 
 export function Post({ post }: PostProps) {
@@ -47,16 +49,16 @@ export function Post({ post }: PostProps) {
   const { user } = useAuth()
   const isAuthor = user?.username === post.author.username
 
+  const isLiked = post.likedBy?.includes(user?.username || '')
+  const [likes, setLikes] = useState(post.likes)
+
   const handleLike = async () => {
     try {
-      const promise = likePost(post._id)
-      toast.promise(promise, {
-        loading: 'Updating like...',
-        success: post.liked ? 'Post unliked' : 'Post liked',
-        error: 'Failed to update like',
-      })
-      await promise
-    } catch {
+      const updatedPost = await likePost(post._id)
+      setLikes(updatedPost.likes)
+      toast.success(isLiked ? 'Post unliked' : 'Post liked')
+    } catch (error) {
+      console.error('Error liking post:', error)
       toast.error('Failed to update like')
     }
   }
@@ -153,6 +155,8 @@ export function Post({ post }: PostProps) {
             alt={post.caption} 
             className="w-full object-cover"
           />
+        ) : post.video ? (
+          <VideoPlayer url={post.video} />
         ) : post.code ? (
           <div className="bg-gray-100 dark:bg-gray-800 p-4 overflow-x-auto">
             <div className="flex items-center mb-2">
@@ -165,7 +169,11 @@ export function Post({ post }: PostProps) {
           </div>
         ) : (
           <div className="h-64 bg-gray-200 dark:bg-gray-800 flex items-center justify-center">
-            <ImageIcon className="h-12 w-12 text-gray-400" />
+            {post.video ? (
+              <VideoIcon className="h-12 w-12 text-gray-400" />
+            ) : (
+              <ImageIcon className="h-12 w-12 text-gray-400" />
+            )}
           </div>
         )}
       </div>
@@ -180,13 +188,13 @@ export function Post({ post }: PostProps) {
                   variant="ghost" 
                   size="icon" 
                   onClick={handleLike}
-                  className={post.liked ? "text-red-500" : ""}
+                  className={`hover:bg-transparent ${isLiked ? "text-red-500 hover:text-red-600" : "text-gray-500 hover:text-gray-600"}`}
                 >
-                  <Heart className={`h-6 w-6 ${post.liked ? "fill-current" : ""}`} />
+                  <Heart className={`h-6 w-6 ${isLiked ? "fill-current" : ""}`} />
                 </Button>
               </TooltipTrigger>
               <TooltipContent>
-                <p>{post.liked ? "Unlike" : "Like"}</p>
+                <p>{isLiked ? "Unlike" : "Like"}</p>
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
@@ -227,7 +235,7 @@ export function Post({ post }: PostProps) {
           </TooltipProvider>
         </div>
 
-        <p className="font-medium">{post.likes} likes</p>
+        <p className="font-medium">{likes} likes</p>
         <p className="mt-1">
           <span className="font-medium mr-2">{post.author.username}</span>
           {post.caption}

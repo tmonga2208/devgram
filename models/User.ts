@@ -15,6 +15,25 @@ export interface IUser extends mongoose.Document {
   createdAt: Date;
   updatedAt: Date;
   comparePassword(candidatePassword: string): Promise<boolean>;
+  isVerified: boolean;
+  twoFactorEnabled: boolean;
+  notificationSettings: {
+    email: boolean;
+    push: boolean;
+    followers: boolean;
+    comments: boolean;
+    likes: boolean;
+    mentions: boolean;
+    marketing: boolean;
+  };
+  privacySettings: {
+    isPrivate: boolean;
+    showActivityStatus: boolean;
+    allowTagging: boolean;
+    allowMessaging: boolean;
+    showPosts: boolean;
+    showStories: boolean;
+  };
 }
 
 const userSchema = new mongoose.Schema<IUser>(
@@ -68,6 +87,70 @@ const userSchema = new mongoose.Schema<IUser>(
       type: Number,
       default: 0,
     },
+    isVerified: {
+      type: Boolean,
+      default: false,
+    },
+    twoFactorEnabled: {
+      type: Boolean,
+      default: false,
+    },
+    notificationSettings: {
+      email: {
+        type: Boolean,
+        default: true,
+      },
+      push: {
+        type: Boolean,
+        default: true,
+      },
+      followers: {
+        type: Boolean,
+        default: true,
+      },
+      comments: {
+        type: Boolean,
+        default: true,
+      },
+      likes: {
+        type: Boolean,
+        default: true,
+      },
+      mentions: {
+        type: Boolean,
+        default: true,
+      },
+      marketing: {
+        type: Boolean,
+        default: false,
+      },
+    },
+    privacySettings: {
+      isPrivate: {
+        type: Boolean,
+        default: false,
+      },
+      showActivityStatus: {
+        type: Boolean,
+        default: true,
+      },
+      allowTagging: {
+        type: Boolean,
+        default: true,
+      },
+      allowMessaging: {
+        type: Boolean,
+        default: true,
+      },
+      showPosts: {
+        type: Boolean,
+        default: true,
+      },
+      showStories: {
+        type: Boolean,
+        default: true,
+      },
+    },
   },
   {
     timestamps: true,
@@ -95,5 +178,10 @@ userSchema.methods.comparePassword = async function (candidatePassword: string):
     throw error;
   }
 };
+
+userSchema.index({ username: 1 });
+userSchema.index({ email: 1 });
+userSchema.index({ fullName: 1 });
+userSchema.index({ followers: 1, followingCount: 1 });
 
 export default mongoose.models.User || mongoose.model<IUser>('User', userSchema); 

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import connectDB from '@/lib/mongodb';
+import { connectToDatabase } from '@/lib/mongodb';
 import User, { IUser } from '@/models/User';
 import { authMiddleware, AuthRequest } from '@/middleware/auth';
 import mongoose from 'mongoose';
@@ -9,7 +9,7 @@ export async function GET(
   { params }: { params: { username: string } }
 ) {
   try {
-    await connectDB();
+    await connectToDatabase();
     
     // Get the current user's token if available
     const token = req.headers.get('authorization')?.split(' ')[1];
@@ -73,7 +73,7 @@ export async function PATCH(
       );
     }
     
-    await connectDB();
+    await connectToDatabase();
     
     const { fullName, bio, website, avatar } = await req.json();
     

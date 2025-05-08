@@ -3,7 +3,7 @@
 import type React from "react"
 import { useState } from "react"
 import { useRouter } from "next/navigation"
-import { Code, ImageIcon } from "lucide-react"
+import { Code, ImageIcon, VideoIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -25,6 +25,7 @@ export function CreatePostForm() {
   const [code, setCode] = useState("")
   const [language, setLanguage] = useState("javascript")
   const [imageUrl, setImageUrl] = useState("")
+  const [videoUrl , setVideoUrl] = useState("")
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -35,6 +36,13 @@ export function CreatePostForm() {
       if (activeTab === "image" && !imageUrl) {
         setError("Image URL is required for image posts")
         toast.error("Image URL is required for image posts")
+        setIsSubmitting(false)
+        return
+      }
+
+      if (activeTab === "video" && !videoUrl) {
+        setError("Video URL is required for video posts")
+        toast.error("Video URL is required for video posts")
         setIsSubmitting(false)
         return
       }
@@ -50,6 +58,7 @@ export function CreatePostForm() {
         caption,
         image: activeTab === "image" ? imageUrl : undefined,
         code: activeTab === "code" ? code : undefined,
+        video: activeTab === "video" ? videoUrl : undefined,
         language: activeTab === "code" ? language : undefined,
       })
 
@@ -85,10 +94,14 @@ export function CreatePostForm() {
               </Alert>
             )}
             <Tabs defaultValue="image" value={activeTab} onValueChange={setActiveTab} className="w-full">
-              <TabsList className="grid w-full grid-cols-2">
+              <TabsList className="grid w-full grid-cols-3">
                 <TabsTrigger value="image" className="flex items-center gap-2">
                   <ImageIcon className="h-4 w-4" />
                   Image
+                </TabsTrigger>
+                <TabsTrigger value="video" className="flex items-center gap-2">
+                  <VideoIcon className="h-4 w-4" />
+                  Video
                 </TabsTrigger>
                 <TabsTrigger value="code" className="flex items-center gap-2">
                   <Code className="h-4 w-4" />
@@ -105,6 +118,19 @@ export function CreatePostForm() {
                     value={imageUrl}
                     onChange={(e) => setImageUrl(e.target.value)}
                     required={activeTab === "image"}
+                  />
+                </div>
+              </TabsContent>
+              <TabsContent value="video" className="mt-4 space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="videoUrl">Video URL</Label>
+                  <Input
+                    id="videoUrl"
+                    type="url"
+                    placeholder="https://example.com/video.mp4"
+                    value={videoUrl}
+                    onChange={(e) => setVideoUrl(e.target.value)}
+                    required={activeTab === "video"}
                   />
                 </div>
               </TabsContent>

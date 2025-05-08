@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import connectDB from '@/lib/mongodb';
+import { connectToDatabase } from '@/lib/mongodb';
 import Post from '@/models/Post';
 import { authMiddleware, AuthRequest } from '@/middleware/auth';
 import Notification from '@/models/Notification';
@@ -10,7 +10,7 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
-    await connectDB();
+    await connectToDatabase();
     
     const post = await Post.findById(params.id);
     
@@ -55,11 +55,12 @@ export async function PATCH(
       return authResponse;
     }
     
-    await connectDB();
+    await connectToDatabase();
     
     const { action, comment } = await req.json();
+    const postId = params.id;
     
-    const post = await Post.findById(params.id);
+    const post = await Post.findById(postId);
     
     if (!post) {
       return NextResponse.json(
@@ -67,23 +68,61 @@ export async function PATCH(
         { status: 404 }
       );
     }
+
+    // Ensure likedBy exists
+    if (!post.likedBy) {
+      post.likedBy = [];
+    }
     
     switch (action) {
       case 'like':
-        post.liked = !post.liked;
-        post.likes += post.liked ? 1 : -1;
-        
-        // Create notification for like
-        if (post.liked && req.user?.username !== post.author.username) {
-          await createNotification(
-            req.user?.username || '',
-            post.author.username,
-            'like',
-            'liked your post',
-            post._id.toString()
+        const userId = req.user?.username;
+        if (!userId) {
+          return NextResponse.json(
+            { error: 'User not authenticated' },
+            { status: 401 }
           );
         }
-        break;
+
+        // Ensure likedBy is an array and remove any duplicates
+        if (!Array.isArray(post.likedBy)) {
+          post.likedBy = [];
+        }
+        post.likedBy = [...new Set(post.likedBy)];
+
+        const hasLiked = post.likedBy.includes(userId);
+        if (hasLiked) {
+          // Unlike
+          post.likedBy = post.likedBy.filter((id: string) => id !== userId);
+          post.likes = Math.max(0, post.likes - 1);
+        } else {
+          // Like
+          post.likedBy.push(userId);
+          post.likes += 1;
+          
+          // Create notification for like
+          if (userId !== post.author.username) {
+            await createNotification(
+              userId,
+              post.author.username,
+              'like',
+              'liked your post',
+              post._id.toString()
+            );
+          }
+        }
+
+        await post.save();
+        
+        // Return the updated post with the correct liked status
+        const updatedPost = {
+          ...post.toObject(),
+          liked: post.likedBy.includes(userId),
+          likes: post.likes,
+          likedBy: post.likedBy
+        };
+        
+        return NextResponse.json(updatedPost);
       case 'save':
         post.saved = !post.saved;
         break;
@@ -140,7 +179,7 @@ export async function DELETE(
       return authResponse;
     }
     
-    await connectDB();
+    await connectToDatabase();
     
     const post = await Post.findById(params.id);
     
@@ -168,5 +207,59 @@ export async function DELETE(
       { error: 'Failed to delete post' },
       { status: 500 }
     );
+  }
+}
+
+export async function POST(
+  request: AuthRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    // Check authentication
+    const authResponse = await authMiddleware(request);
+    if (authResponse instanceof NextResponse) {
+      return authResponse;
+    }
+
+    await connectToDatabase();
+    
+    const post = await Post.findById(params.id);
+    if (!post) {
+      return new NextResponse('Post not found', { status: 404 });
+    }
+
+    // Handle like/unlike
+    const isLiked = post.likedBy.includes(request.user?.username || '');
+    const updatedLikedBy = isLiked
+      ? post.likedBy.filter((username: string) => username !== request.user?.username)
+      : [...post.likedBy, request.user?.username];
+
+    const updatedPost = await Post.findByIdAndUpdate(
+      params.id,
+      {
+        $set: {
+          likes: isLiked ? post.likes - 1 : post.likes + 1,
+          likedBy: updatedLikedBy
+        }
+      },
+      { new: true }
+    ).populate('author');
+
+    // Create notification if someone else liked the post
+    if (!isLiked && post.author.username !== request.user?.username) {
+      await Notification.create({
+        sender: request.user?.username,
+        recipient: post.author.username,
+        type: 'like',
+        content: 'liked your post',
+        postId: post._id,
+        read: false
+      });
+    }
+
+    return NextResponse.json(updatedPost);
+  } catch (error) {
+    console.error('Error in POST /api/posts/[id]:', error);
+    return new NextResponse('Internal Server Error', { status: 500 });
   }
 } 

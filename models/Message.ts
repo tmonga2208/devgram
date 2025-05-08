@@ -28,4 +28,6 @@ const messageSchema = new mongoose.Schema<IMessage>(
   }
 )
 
+messageSchema.index({ sender: 1, receiver: 1 });
+
 export default mongoose.models.Message || mongoose.model<IMessage>('Message', messageSchema) 

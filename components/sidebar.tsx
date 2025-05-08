@@ -15,7 +15,7 @@ export function Sidebar({ className }: SidebarProps) {
 
   return (
     <div className={cn("w-[240px] border-r px-3 py-6", className)}>
-      <div className="flex flex-col gap-2">
+      <div className="flex fixed flex-col gap-2">
         <Link href="/">
           <Button variant="ghost" className="w-full justify-start gap-2">
             <Home className="h-5 w-5" />

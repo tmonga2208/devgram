@@ -4,7 +4,7 @@ import { IUser } from '@/models/User';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 
-type AuthUser = Pick<IUser, 'id' | 'username' | 'email'>;
+type AuthUser = Pick<IUser, 'id' | 'username' | 'email' | 'avatar'>;
 
 export interface AuthRequest extends NextRequest {
   user?: AuthUser;
@@ -15,7 +15,8 @@ export function generateToken(user: IUser): string {
     { 
       id: user._id,
       username: user.username,
-      email: user.email
+      email: user.email,
+      avatar: user.avatar
     },
     JWT_SECRET,
     { expiresIn: '7d' }

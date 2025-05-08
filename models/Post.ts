@@ -15,6 +15,7 @@ export interface IPost extends mongoose.Document {
     avatar: string;
   };
   image?: string;
+  video?: string;
   code?: string;
   language?: string;
   caption: string;
@@ -22,7 +23,7 @@ export interface IPost extends mongoose.Document {
   comments: IComment[];
   createdAt: Date;
   updatedAt: Date;
-  liked: boolean;
+  likedBy: string[];
   saved: boolean;
 }
 
@@ -69,6 +70,9 @@ const postSchema = new mongoose.Schema<IPost>(
     image: {
       type: String,
     },
+    video: {
+      type: String,
+    },
     code: {
       type: String,
     },
@@ -84,9 +88,9 @@ const postSchema = new mongoose.Schema<IPost>(
       default: 0,
     },
     comments: [commentSchema],
-    liked: {
-      type: Boolean,
-      default: false,
+    likedBy: {
+      type: [String],
+      default: []
     },
     saved: {
       type: Boolean,
@@ -97,5 +101,8 @@ const postSchema = new mongoose.Schema<IPost>(
     timestamps: true,
   }
 );
+
+postSchema.index({ 'author.username': 1 });
+postSchema.index({ likes: 1, createdAt: -1 });
 
 export default mongoose.models.Post || mongoose.model<IPost>('Post', postSchema); 
