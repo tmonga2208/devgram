@@ -213,6 +213,87 @@ const sections = {
     const gone = await api("GET", `/api/posts/${postId}`)
     check("deleted post is 404", gone.status === 404, `status ${gone.status}`)
   },
+  async users() {
+    await ensureUsers()
+    const { a, b } = state
+
+    const pub = await api("GET", `/api/users/${names.a}`)
+    check("public profile is 200", pub.status === 200 && pub.data?.username === names.a, `status ${pub.status}`)
+    check("public profile hides password and email", !("password" in (pub.data || {})) && !("email" in (pub.data || {})))
+    check("public profile hides settings", !("notificationSettings" in (pub.data || {})) && !("privacySettings" in (pub.data || {})))
+    check("public profile has numeric counts", pub.data?.followers === 0 && pub.data?.following === 0)
+    check("anonymous viewer is not following", pub.data?.isFollowing === false)
+    const nobody = await api("GET", `/api/users/nobody_${run}`)
+    check("unknown user is 404", nobody.status === 404, `status ${nobody.status}`)
+
+    const meAnon = await api("GET", "/api/users/profile")
+    check("own profile without token is 401", meAnon.status === 401, `status ${meAnon.status}`)
+    const meGarbage = await api("GET", "/api/users/profile", { token: "not.a.token" })
+    check("own profile with garbage token is 401", meGarbage.status === 401, `status ${meGarbage.status}`)
+    const me = await api("GET", "/api/users/profile", { token: a.token })
+    check("own profile is 200 with email and settings", me.status === 200 && me.data?.email === `${names.a}@example.com` && me.data?.privacySettings?.isPrivate === false, me.text.slice(0, 120))
+
+    const edit = await api("PATCH", "/api/users/profile", {
+      token: a.token,
+      body: { fullName: "Smoke Edited", bio: "hello", website: "https://example.com", avatar: "https://example.com/me.png" },
+    })
+    check(
+      "profile edit is 200 and applied",
+      edit.status === 200 && edit.data?.fullName === "Smoke Edited" && edit.data?.bio === "hello" && edit.data?.website === "https://example.com" && edit.data?.avatar === "https://example.com/me.png",
+      `status ${edit.status} ${edit.text.slice(0, 120)}`,
+    )
+    const clear = await api("PATCH", "/api/users/profile", { token: a.token, body: { bio: "", website: "", avatar: "" } })
+    check("bio and website can be cleared", clear.data?.bio === "" && clear.data?.website === "")
+    check("clearing avatar restores the placeholder", clear.data?.avatar === "/placeholder.svg")
+    const jsSite = await api("PATCH", "/api/users/profile", { token: a.token, body: { website: "javascript:alert(1)" } })
+    check("javascript: website is 400", jsSite.status === 400, `status ${jsSite.status}`)
+    const jsAvatar = await api("PATCH", "/api/users/profile", { token: a.token, body: { avatar: "javascript:alert(1)" } })
+    check("javascript: avatar is 400", jsAvatar.status === 400, `status ${jsAvatar.status}`)
+    const rename = await api("PATCH", "/api/users/profile", { token: a.token, body: { username: `${names.a}_new` } })
+    check("username change is 400", rename.status === 400, `status ${rename.status}`)
+    const takenEmail = await api("PATCH", "/api/users/profile", { token: a.token, body: { email: `${names.b}@example.com` } })
+    check("taken email is 409", takenEmail.status === 409, `status ${takenEmail.status}`)
+    const patchAnon = await api("PATCH", "/api/users/profile", { body: { bio: "x" } })
+    check("profile edit without token is 401", patchAnon.status === 401, `status ${patchAnon.status}`)
+
+    const notif = await api("PATCH", "/api/users/profile", { token: a.token, body: { notificationSettings: { likes: false, bogus: true } } })
+    check(
+      "notification settings merge",
+      notif.data?.notificationSettings?.likes === false && notif.data?.notificationSettings?.comments === true && !("bogus" in (notif.data?.notificationSettings || {})),
+      notif.text.slice(0, 160),
+    )
+    const privacy = await api("PATCH", "/api/users/profile", { token: a.token, body: { privacySettings: { isPrivate: true } } })
+    check("privacy settings merge", privacy.data?.privacySettings?.isPrivate === true && privacy.data?.privacySettings?.allowMessaging === true)
+    const reread = await api("GET", "/api/users/profile", { token: a.token })
+    check("settings persist", reread.data?.notificationSettings?.likes === false && reread.data?.privacySettings?.isPrivate === true)
+
+    const wrongPw = await api("PATCH", "/api/users/profile", { token: a.token, body: { currentPassword: "wrong-one", newPassword: "smoke-pass-2" } })
+    check("wrong current password is 400", wrongPw.status === 400, `status ${wrongPw.status}`)
+    const shortPw = await api("PATCH", "/api/users/profile", { token: a.token, body: { currentPassword: a.password, newPassword: "123" } })
+    check("short new password is 400", shortPw.status === 400, `status ${shortPw.status}`)
+    const changePw = await api("PATCH", "/api/users/profile", { token: a.token, body: { currentPassword: a.password, newPassword: "smoke-pass-2" } })
+    check("password change is 200", changePw.status === 200, `status ${changePw.status}`)
+    const oldLogin = await api("POST", "/api/auth/login", { body: { email: `${names.a}@example.com`, password: a.password } })
+    check("old password no longer works", oldLogin.status === 401, `status ${oldLogin.status}`)
+    const newLogin = await api("POST", "/api/auth/login", { body: { email: `${names.a}@example.com`, password: "smoke-pass-2" } })
+    check("new password works", newLogin.status === 200, `status ${newLogin.status}`)
+    a.password = "smoke-pass-2"
+
+    const followAnon = await api("POST", `/api/users/${names.a}/follow`)
+    check("follow without token is 401", followAnon.status === 401, `status ${followAnon.status}`)
+    const followSelf = await api("POST", `/api/users/${names.a}/follow`, { token: a.token })
+    check("follow yourself is 400", followSelf.status === 400, `status ${followSelf.status}`)
+    const followNobody = await api("POST", `/api/users/nobody_${run}/follow`, { token: b.token })
+    check("follow unknown user is 404", followNobody.status === 404, `status ${followNobody.status}`)
+    const follow = await api("POST", `/api/users/${names.a}/follow`, { token: b.token })
+    check("follow sets following and counts", follow.status === 200 && follow.data?.following === true && follow.data?.followers === 1 && follow.data?.followingCount === 1, follow.text.slice(0, 120))
+    const seenByB = await api("GET", `/api/users/${names.a}`, { token: b.token })
+    check("follower sees isFollowing true", seenByB.data?.isFollowing === true && seenByB.data?.followers === 1)
+    const bProfile = await api("GET", `/api/users/${names.b}`)
+    check("follower's following count is 1", bProfile.data?.following === 1)
+    const unfollow = await api("POST", `/api/users/${names.a}/follow`, { token: b.token })
+    check("second follow unfollows", unfollow.data?.following === false && unfollow.data?.followers === 0 && unfollow.data?.followingCount === 0, unfollow.text.slice(0, 120))
+  },
 }
 
 async function cleanup() {

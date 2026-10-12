@@ -1,117 +1,51 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { connectToDatabase } from '@/lib/mongodb';
-import User, { IUser } from '@/models/User';
-import { authMiddleware, AuthRequest } from '@/middleware/auth';
-import mongoose from 'mongoose';
+import User from '@/models/User';
+import { getAuthUser } from '@/lib/auth';
+import { handleRouteError, jsonError } from '@/lib/http';
 
-export async function GET(
-  req: NextRequest,
-  { params }: { params: { username: string } }
-) {
+// Public profile. isFollowing reflects the caller when a valid token is sent.
+export async function GET(req: Request, { params }: { params: Promise<{ username: string }> }) {
   try {
+    const { username } = await params;
+
     await connectToDatabase();
-    
-    // Get the current user's token if available
-    const token = req.headers.get('authorization')?.split(' ')[1];
-    let currentUser: IUser | null = null;
-    
-    if (token) {
-      try {
-        const authResponse = await authMiddleware(req as AuthRequest);
-        if (!(authResponse instanceof NextResponse)) {
-          currentUser = await User.findOne({ username: (req as AuthRequest).user?.username });
-        }
-      } catch (error) {
-        console.error('Auth error:', error);
-      }
-    }
-    
-    const user = await User.findOne({ username: params.username })
-      .select('-password -email')
+
+    const user = await User.findOne({ username })
+      .select('username fullName avatar bio website followers following isVerified')
       .lean();
-    
-    if (!user) {
-      return NextResponse.json(
-        { error: 'User not found' },
-        { status: 404 }
-      );
-    }
-    
-    // Add isFollowing field and calculate following count
-    const response = {
-      ...user,
-      isFollowing: currentUser ? currentUser.following.some((id: mongoose.Types.ObjectId) => id.toString() === user._id.toString()) : false,
-      following: user.following ? user.following.length : 0
+    if (!user) return jsonError('User not found', 404);
+
+    const profile = user as {
+      _id: unknown;
+      username: string;
+      fullName: string;
+      avatar?: string;
+      bio?: string;
+      website?: string;
+      followers?: number;
+      following?: unknown[];
+      isVerified?: boolean;
     };
-    
-    return NextResponse.json(response);
+
+    const viewer = await getAuthUser(req);
+    const isFollowing = viewer
+      ? Boolean(await User.exists({ username: viewer.username, following: profile._id }))
+      : false;
+
+    return NextResponse.json({
+      _id: profile._id,
+      username: profile.username,
+      fullName: profile.fullName,
+      avatar: profile.avatar || '/placeholder.svg',
+      bio: profile.bio || '',
+      website: profile.website || '',
+      followers: profile.followers || 0,
+      following: profile.following ? profile.following.length : 0,
+      isVerified: Boolean(profile.isVerified),
+      isFollowing,
+    });
   } catch (error) {
-    console.error('Fetch user error:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch user' },
-      { status: 500 }
-    );
+    return handleRouteError(error, 'Fetch user error', 'Failed to fetch user');
   }
 }
-
-export async function PATCH(
-  req: AuthRequest,
-  { params }: { params: { username: string } }
-) {
-  try {
-    // Check authentication
-    const authResponse = await authMiddleware(req);
-    if (authResponse instanceof NextResponse) {
-      return authResponse;
-    }
-
-    // Check if user is updating their own profile
-    if (req.user?.username !== params.username) {
-      return NextResponse.json(
-        { error: 'Not authorized' },
-        { status: 403 }
-      );
-    }
-    
-    await connectToDatabase();
-    
-    const { fullName, bio, website, avatar } = await req.json();
-    
-    const user = await User.findOne({ username: params.username });
-    
-    if (!user) {
-      return NextResponse.json(
-        { error: 'User not found' },
-        { status: 404 }
-      );
-    }
-    
-    // Update user fields
-    if (fullName) user.fullName = fullName;
-    if (bio !== undefined) user.bio = bio;
-    if (website !== undefined) user.website = website;
-    if (avatar) user.avatar = avatar;
-    
-    await user.save();
-    
-    // Return updated user without sensitive information
-    const updatedUser = {
-      id: user._id,
-      username: user.username,
-      fullName: user.fullName,
-      avatar: user.avatar,
-      bio: user.bio,
-      website: user.website,
-      followers: user.followers,
-      following: user.following,
-    };
-    
-    return NextResponse.json(updatedUser);
-  } catch (error) {
-    console.error('Update user error:', error);
-    return NextResponse.json(
-      { error: 'Failed to update user' },
-      { status: 500 }
-    );
-  }
-} 
