@@ -24,7 +24,7 @@ export interface IPost extends mongoose.Document {
   createdAt: Date;
   updatedAt: Date;
   likedBy: string[];
-  saved: boolean;
+  savedBy: string[];
 }
 
 const commentSchema = new mongoose.Schema<IComment>(
@@ -92,9 +92,9 @@ const postSchema = new mongoose.Schema<IPost>(
       type: [String],
       default: []
     },
-    saved: {
-      type: Boolean,
-      default: false,
+    savedBy: {
+      type: [String],
+      default: []
     },
   },
   {

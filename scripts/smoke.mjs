@@ -114,6 +114,105 @@ const sections = {
     })
     check("unknown email is 401", unknown.status === 401, `status ${unknown.status}`)
   },
+  async posts() {
+    await ensureUsers()
+    const { a, b } = state
+    const missingId = "0123456789abcdef01234567"
+
+    const noToken = await api("POST", "/api/posts", { body: { caption: "x" } })
+    check("create without token is 401", noToken.status === 401, `status ${noToken.status}`)
+    const garbage = await api("POST", "/api/posts", { token: "not.a.token", body: { caption: "x" } })
+    check("create with garbage token is 401", garbage.status === 401, `status ${garbage.status}`)
+    const noCaption = await api("POST", "/api/posts", { token: a.token, body: { image: "https://example.com/a.png" } })
+    check("create without caption is 400", noCaption.status === 400, `status ${noCaption.status}`)
+    const wrongType = await api("POST", "/api/posts", { token: a.token, body: { caption: 42 } })
+    check("caption wrong type is 400", wrongType.status === 400, `status ${wrongType.status}`)
+    const jsUrl = await api("POST", "/api/posts", {
+      token: a.token,
+      body: { caption: "bad", image: "javascript:alert(1)" },
+    })
+    check("javascript: image url is 400", jsUrl.status === 400, `status ${jsUrl.status}`)
+
+    const image = await api("POST", "/api/posts", {
+      token: a.token,
+      body: { caption: `image post ${run}`, image: "https://example.com/a.png" },
+    })
+    check("create image post is 201", image.status === 201, `status ${image.status} ${image.text.slice(0, 120)}`)
+    check("post author is the caller", image.data?.author?.username === names.a)
+    check("post author avatar is the placeholder", image.data?.author?.avatar === "/placeholder.svg")
+    check("new post has empty likedBy and savedBy", image.data?.likedBy?.length === 0 && image.data?.savedBy?.length === 0)
+    const code = await api("POST", "/api/posts", {
+      token: a.token,
+      body: { caption: `code post ${run} cc @${names.b}`, code: "const x = 1", language: "javascript" },
+    })
+    check("create code post is 201", code.status === 201, `status ${code.status}`)
+    const postId = image.data?._id
+    const codeId = code.data?._id
+
+    const list = await api("GET", "/api/posts")
+    const ids = Array.isArray(list.data) ? list.data.map((p) => p._id) : []
+    check("list includes both posts", list.status === 200 && ids.includes(postId) && ids.includes(codeId))
+    check("list is newest first", ids.indexOf(codeId) < ids.indexOf(postId))
+
+    const one = await api("GET", `/api/posts/${postId}`)
+    check("get post is 200", one.status === 200 && one.data?._id === postId, `status ${one.status}`)
+    const malformedId = await api("GET", "/api/posts/not-an-id")
+    check("malformed id is 404", malformedId.status === 404, `status ${malformedId.status}`)
+    const absent = await api("GET", `/api/posts/${missingId}`)
+    check("unknown id is 404", absent.status === 404, `status ${absent.status}`)
+
+    const likeAnon = await api("POST", `/api/posts/${postId}/like`)
+    check("like without token is 401", likeAnon.status === 401, `status ${likeAnon.status}`)
+    const like = await api("POST", `/api/posts/${postId}/like`, { token: b.token })
+    check("like adds the user", like.status === 200 && like.data?.likes === 1 && like.data?.likedBy?.includes(names.b), like.text.slice(0, 120))
+    const unlike = await api("POST", `/api/posts/${postId}/like`, { token: b.token })
+    check("second like removes the user", unlike.data?.likes === 0 && !unlike.data?.likedBy?.includes(names.b))
+    await Promise.all([
+      api("POST", `/api/posts/${postId}/like`, { token: b.token }),
+      api("POST", `/api/posts/${postId}/like`, { token: b.token }),
+    ])
+    const afterRace = await api("GET", `/api/posts/${postId}`)
+    check(
+      "parallel likes stay consistent",
+      afterRace.data?.likes === afterRace.data?.likedBy?.length && afterRace.data?.likes >= 0,
+      `likes ${afterRace.data?.likes} likedBy ${afterRace.data?.likedBy?.length}`,
+    )
+    const likeMissing = await api("POST", `/api/posts/${missingId}/like`, { token: b.token })
+    check("like unknown post is 404", likeMissing.status === 404, `status ${likeMissing.status}`)
+
+    const saveAnon = await api("POST", `/api/posts/${postId}/save`)
+    check("save without token is 401", saveAnon.status === 401, `status ${saveAnon.status}`)
+    const save = await api("POST", `/api/posts/${postId}/save`, { token: b.token })
+    check("save adds only the caller", save.status === 200 && save.data?.savedBy?.includes(names.b) && !save.data?.savedBy?.includes(names.a), save.text.slice(0, 120))
+    const unsave = await api("POST", `/api/posts/${postId}/save`, { token: b.token })
+    check("second save removes the caller", unsave.status === 200 && !unsave.data?.savedBy?.includes(names.b))
+
+    const commentAnon = await api("POST", `/api/posts/${postId}/comments`, { body: { text: "hi" } })
+    check("comment without token is 401", commentAnon.status === 401, `status ${commentAnon.status}`)
+    const emptyComment = await api("POST", `/api/posts/${postId}/comments`, { token: b.token, body: { text: "   " } })
+    check("empty comment is 400", emptyComment.status === 400, `status ${emptyComment.status}`)
+    const comment = await api("POST", `/api/posts/${postId}/comments`, { token: b.token, body: { text: "nice one" } })
+    check(
+      "comment is 201 with id, author and text",
+      comment.status === 201 && typeof comment.data?._id === "string" && comment.data?.username === names.b && comment.data?.text === "nice one",
+      `status ${comment.status} ${comment.text.slice(0, 120)}`,
+    )
+    check("comment carries a createdAt timestamp", !Number.isNaN(Date.parse(comment.data?.createdAt)), `createdAt ${comment.data?.createdAt}`)
+    const comments = await api("GET", `/api/posts/${postId}/comments`)
+    check("comments list has the comment", comments.status === 200 && comments.data?.length === 1)
+
+    const similar = await api("GET", `/api/posts/similar/${codeId}`)
+    check("similar is 200 with an array", similar.status === 200 && Array.isArray(similar.data), `status ${similar.status}`)
+    check("similar excludes the post itself", !similar.data?.some?.((p) => p._id === codeId))
+    check("similar includes the author's other post", similar.data?.some?.((p) => p._id === postId))
+
+    const deleteOther = await api("DELETE", `/api/posts/${postId}`, { token: b.token })
+    check("delete by non-author is 403", deleteOther.status === 403, `status ${deleteOther.status}`)
+    const deleteOwn = await api("DELETE", `/api/posts/${postId}`, { token: a.token })
+    check("delete by author is 200", deleteOwn.status === 200, `status ${deleteOwn.status}`)
+    const gone = await api("GET", `/api/posts/${postId}`)
+    check("deleted post is 404", gone.status === 404, `status ${gone.status}`)
+  },
 }
 
 async function cleanup() {

@@ -1,120 +1,72 @@
 import { NextResponse } from "next/server"
 import { connectToDatabase } from "@/lib/mongodb"
 import Post from "@/models/Post"
-import { getToken } from "next-auth/jwt"
-import { NextRequest } from "next/server"
-import Notification from "@/models/Notification"
+import User from "@/models/User"
+import { requireAuth } from "@/lib/auth"
+import { handleRouteError, isValidId, jsonError, readJson } from "@/lib/http"
+import { createNotification, notifyMentions } from "@/lib/notifications"
 
-// Helper function to create a notification
-async function createNotification(sender: string, recipient: string, type: 'like' | 'comment' | 'follow' | 'message' | 'mention', content: string, postId?: string) {
-  await Notification.create({
-    sender,
-    recipient,
-    type,
-    content,
-    postId,
-    read: false
-  });
-}
-
-// Helper function to extract mentions from text
-function extractMentions(text: string): string[] {
-  const mentionRegex = /@(\w+)/g;
-  const matches = text.match(mentionRegex);
-  return matches ? matches.map(match => match.slice(1)) : [];
-}
+type Context = { params: Promise<{ id: string }> }
 
 // Add a comment to a post
-export async function POST(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function POST(req: Request, { params }: Context) {
   try {
-    const token = await getToken({ req: request })
-    if (!token) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
+    const auth = await requireAuth(req)
+    if (auth instanceof NextResponse) return auth
+
+    const { id } = await params
+    if (!isValidId(id)) return jsonError("Post not found", 404)
+
+    const body = await readJson(req)
+    const text = typeof body?.text === "string" ? body.text.trim() : ""
+    if (!text) return jsonError("Comment text is required", 400)
+    if (text.length > 1000) return jsonError("Comment must be 1000 characters or fewer", 400)
 
     await connectToDatabase()
-    
-    const { text } = await request.json()
-    if (!text) {
-      return NextResponse.json(
-        { error: "Comment text is required" },
-        { status: 400 }
-      )
-    }
 
-    const post = await Post.findById(params.id)
-    if (!post) {
-      return NextResponse.json({ error: "Post not found" }, { status: 404 })
-    }
+    const commenter = await User.findOne({ username: auth.username }).select("avatar").lean()
+    if (!commenter) return jsonError("Authentication required", 401)
 
-    const comment = {
-      username: token.username as string,
-      avatar: token.avatar as string,
-      text,
-      likes: 0,
-      createdAt: new Date().toISOString(),
-    }
-
-    post.comments.push(comment)
-    await post.save()
-
-    // Create notification for post author if commenter is not the author
-    if (post.author !== token.username) {
-      await createNotification(
-        token.username,
-        post.author,
-        'comment',
-        'commented on your post',
-        post._id.toString()
-      );
-    }
-    
-    // Check for mentions and create notifications
-    const mentions = extractMentions(text);
-    for (const mentionedUser of mentions) {
-      if (mentionedUser !== token.username && mentionedUser !== post.author) {
-        await createNotification(
-          token.username,
-          mentionedUser,
-          'mention',
-          'mentioned you in a comment',
-          post._id.toString()
-        );
-      }
-    }
-
-    return NextResponse.json(comment)
-  } catch (error) {
-    console.error("Error adding comment:", error)
-    return NextResponse.json(
-      { error: "Failed to add comment" },
-      { status: 500 }
+    const post = await Post.findByIdAndUpdate(
+      id,
+      {
+        $push: {
+          comments: {
+            username: auth.username,
+            avatar: (commenter as { avatar?: string }).avatar || "/placeholder.svg",
+            text,
+          },
+        },
+      },
+      { new: true }
     )
+    if (!post) return jsonError("Post not found", 404)
+
+    const comment = post.comments[post.comments.length - 1]
+    const author = post.author.username
+    const postId = String(post._id)
+
+    await createNotification(auth.username, author, "comment", "commented on your post", postId)
+    await notifyMentions(auth.username, text, "mentioned you in a comment", postId, [author])
+
+    return NextResponse.json(comment, { status: 201 })
+  } catch (error) {
+    return handleRouteError(error, "Add comment error", "Failed to add comment")
   }
 }
 
 // Get comments for a post
-export async function GET(req: AuthRequest, { params }: { params: { id: string } }) {
+export async function GET(_req: Request, { params }: Context) {
   try {
-    await connectToDatabase();
-    
-    const post = await Post.findById(params.id);
-    if (!post) {
-      return NextResponse.json(
-        { error: 'Post not found' },
-        { status: 404 }
-      );
-    }
-    
-    return NextResponse.json(post.comments);
+    const { id } = await params
+    if (!isValidId(id)) return jsonError("Post not found", 404)
+
+    await connectToDatabase()
+    const post = await Post.findById(id).select("comments").lean()
+    if (!post) return jsonError("Post not found", 404)
+
+    return NextResponse.json((post as { comments?: unknown[] }).comments || [])
   } catch (error) {
-    console.error('Get comments error:', error);
-    return NextResponse.json(
-      { error: 'Failed to get comments' },
-      { status: 500 }
-    );
+    return handleRouteError(error, "Get comments error", "Failed to get comments")
   }
-} 
+}

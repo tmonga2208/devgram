@@ -1,39 +1,30 @@
 import { NextResponse } from "next/server"
 import { connectToDatabase } from "@/lib/mongodb"
 import Post from "@/models/Post"
+import { handleRouteError, isValidId, jsonError } from "@/lib/http"
 
-export async function GET(
-  request: Request,
-  { params }: { params: { id: string } }
-) {
+// Posts in the same language, or by the same author.
+export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    await connectToDatabase()
-    
-    // Get the current post
-    const currentPost = await Post.findById(params.id)
-    if (!currentPost) {
-      return NextResponse.json({ error: "Post not found" }, { status: 404 })
-    }
+    const { id } = await params
+    if (!isValidId(id)) return jsonError("Post not found", 404)
 
-    // Find similar posts based on content similarity
-    const similarPosts = await Post.find({
-      _id: { $ne: params.id }, // Exclude current post
-      $or: [
-        { content: { $regex: currentPost.content, $options: "i" } },
-        { caption: { $regex: currentPost.caption, $options: "i" } },
-        { language: currentPost.language }
-      ]
-    })
-    .sort({ createdAt: -1 })
-    .limit(6)
-    .populate("author", "username avatar verified")
+    await connectToDatabase()
+
+    const current = await Post.findById(id).select("author language").lean()
+    if (!current) return jsonError("Post not found", 404)
+
+    const { author, language } = current as { author: { username: string }; language?: string }
+    const matches: Array<Record<string, string>> = [{ "author.username": author.username }]
+    if (language) matches.push({ language })
+
+    const similarPosts = await Post.find({ _id: { $ne: id }, $or: matches })
+      .sort({ createdAt: -1 })
+      .limit(6)
+      .lean()
 
     return NextResponse.json(similarPosts)
   } catch (error) {
-    console.error("Error fetching similar posts:", error)
-    return NextResponse.json(
-      { error: "Failed to fetch similar posts" },
-      { status: 500 }
-    )
+    return handleRouteError(error, "Similar posts error", "Failed to fetch similar posts")
   }
-} 
+}

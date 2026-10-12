@@ -1,59 +1,41 @@
 import { NextResponse } from 'next/server';
 import { connectToDatabase } from '@/lib/mongodb';
 import Post from '@/models/Post';
-import { authMiddleware, AuthRequest } from '@/middleware/auth';
-import Notification from '@/models/Notification';
+import { requireAuth } from '@/lib/auth';
+import { handleRouteError, isValidId, jsonError } from '@/lib/http';
+import { createNotification } from '@/lib/notifications';
 
-export async function POST(
-  request: AuthRequest,
-  { params }: { params: { id: string } }
-) {
+// Toggle the caller's like. Each branch is one atomic update, so racing
+// requests cannot double-count.
+export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    // Check authentication
-    const authResponse = await authMiddleware(request);
-    if (authResponse instanceof NextResponse) {
-      return authResponse;
-    }
+    const auth = await requireAuth(req);
+    if (auth instanceof NextResponse) return auth;
+
+    const { id } = await params;
+    if (!isValidId(id)) return jsonError('Post not found', 404);
 
     await connectToDatabase();
-    
-    const post = await Post.findById(params.id);
-    if (!post) {
-      return new NextResponse('Post not found', { status: 404 });
-    }
 
-    // Handle like/unlike
-    const isLiked = post.likedBy.includes(request.user?.username || '');
-    const updatedLikedBy = isLiked
-      ? post.likedBy.filter((username: string) => username !== request.user?.username)
-      : [...post.likedBy, request.user?.username];
-
-    const updatedPost = await Post.findByIdAndUpdate(
-      params.id,
-      {
-        $set: {
-          likes: isLiked ? post.likes - 1 : post.likes + 1,
-          likedBy: updatedLikedBy
-        }
-      },
+    const liked = await Post.findOneAndUpdate(
+      { _id: id, likedBy: { $ne: auth.username } },
+      { $addToSet: { likedBy: auth.username }, $inc: { likes: 1 } },
       { new: true }
-    ).populate('author');
-
-    // Create notification if someone else liked the post
-    if (!isLiked && post.author.username !== request.user?.username) {
-      await Notification.create({
-        sender: request.user?.username,
-        recipient: post.author.username,
-        type: 'like',
-        content: 'liked your post',
-        postId: post._id,
-        read: false
-      });
+    );
+    if (liked) {
+      await createNotification(auth.username, liked.author.username, 'like', 'liked your post', String(liked._id));
+      return NextResponse.json(liked);
     }
 
-    return NextResponse.json(updatedPost);
+    const unliked = await Post.findOneAndUpdate(
+      { _id: id, likedBy: auth.username },
+      { $pull: { likedBy: auth.username }, $inc: { likes: -1 } },
+      { new: true }
+    );
+    if (unliked) return NextResponse.json(unliked);
+
+    return jsonError('Post not found', 404);
   } catch (error) {
-    console.error('Error in POST /api/posts/[id]/like:', error);
-    return new NextResponse('Internal Server Error', { status: 500 });
+    return handleRouteError(error, 'Like post error', 'Failed to update like');
   }
-} 
+}
