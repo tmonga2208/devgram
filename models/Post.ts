@@ -105,4 +105,4 @@ const postSchema = new mongoose.Schema<IPost>(
 postSchema.index({ 'author.username': 1 });
 postSchema.index({ likes: 1, createdAt: -1 });
 
-export default mongoose.models.Post || mongoose.model<IPost>('Post', postSchema); 
+export default (mongoose.models.Post as mongoose.Model<IPost>) || mongoose.model<IPost>('Post', postSchema); 

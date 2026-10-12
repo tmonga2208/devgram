@@ -45,4 +45,4 @@ const notificationSchema = new mongoose.Schema<INotification>(
 
 notificationSchema.index({ recipient: 1, read: 1 });
 
-export default mongoose.models.Notification || mongoose.model<INotification>('Notification', notificationSchema) 
+export default (mongoose.models.Notification as mongoose.Model<INotification>) || mongoose.model<INotification>('Notification', notificationSchema) 

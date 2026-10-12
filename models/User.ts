@@ -166,7 +166,7 @@ userSchema.pre('save', async function (next) {
     this.password = await bcrypt.hash(this.password, salt);
     next();
   } catch (error) {
-    next(error);
+    next(error as Error);
   }
 });
 
@@ -184,4 +184,4 @@ userSchema.index({ email: 1 });
 userSchema.index({ fullName: 1 });
 userSchema.index({ followers: 1, followingCount: 1 });
 
-export default mongoose.models.User || mongoose.model<IUser>('User', userSchema); 
+export default (mongoose.models.User as mongoose.Model<IUser>) || mongoose.model<IUser>('User', userSchema); 
