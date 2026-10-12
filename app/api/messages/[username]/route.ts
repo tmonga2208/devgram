@@ -1,36 +1,30 @@
 import { NextResponse } from "next/server"
-import { connectDB } from "@/lib/db"
-import { authMiddleware } from "@/lib/auth"
-import type { AuthRequest } from "@/lib/auth"
+import { connectToDatabase } from "@/lib/mongodb"
+import { requireAuth } from "@/lib/auth"
+import { handleRouteError } from "@/lib/http"
 import Message from "@/models/Message"
 
-// Get messages in a conversation with a specific user
-export async function GET(
-  req: AuthRequest,
-  { params }: { params: { username: string } }
-) {
+// Get messages in a conversation with a specific user, oldest first
+export async function GET(req: Request, { params }: { params: Promise<{ username: string }> }) {
   try {
-    // Check authentication
-    const authResponse = await authMiddleware(req);
-    if (authResponse instanceof NextResponse) {
-      return authResponse;
-    }
-    
-    await connectDB();
-    
+    const auth = await requireAuth(req)
+    if (auth instanceof NextResponse) return auth
+
+    const { username } = await params
+
+    await connectToDatabase()
+
     const messages = await Message.find({
       $or: [
-        { sender: req.user?.username, receiver: params.username },
-        { sender: params.username, receiver: req.user?.username }
-      ]
-    }).sort({ createdAt: 1 });
-    
-    return NextResponse.json(messages);
+        { sender: auth.username, receiver: username },
+        { sender: username, receiver: auth.username },
+      ],
+    })
+      .sort({ createdAt: 1 })
+      .lean()
+
+    return NextResponse.json(messages)
   } catch (error) {
-    console.error('Get messages error:', error);
-    return NextResponse.json(
-      { error: 'Failed to get messages' },
-      { status: 500 }
-    );
+    return handleRouteError(error, "Get messages error", "Failed to get messages")
   }
-} 
+}

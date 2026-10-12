@@ -1,69 +1,31 @@
 import { NextResponse } from "next/server"
-import { connectDB } from "@/lib/db"
-import { authMiddleware } from "@/lib/auth"
-import type { AuthRequest } from "@/lib/auth"
+import { connectToDatabase } from "@/lib/mongodb"
+import { requireAuth } from "@/lib/auth"
+import { handleRouteError, jsonError, readJson } from "@/lib/http"
+import { createNotification } from "@/lib/notifications"
 import Message from "@/models/Message"
-import Notification from "@/models/Notification"
+import User from "@/models/User"
 
-// Helper function to create a notification
-async function createNotification(sender: string, recipient: string, type: 'like' | 'comment' | 'follow' | 'message' | 'mention', content: string, postId?: string) {
-  await Notification.create({
-    sender,
-    recipient,
-    type,
-    content,
-    postId,
-    read: false
-  });
-}
-
-// Get all conversations for the current user
-export async function GET(req: AuthRequest) {
+// Get all conversations for the current user, most recent first
+export async function GET(req: Request) {
   try {
-    // Check authentication
-    const authResponse = await authMiddleware(req);
-    if (authResponse instanceof NextResponse) {
-      return authResponse;
-    }
-    
-    await connectDB();
-    
-    // Find all conversations where the current user is either the sender or receiver
+    const auth = await requireAuth(req)
+    if (auth instanceof NextResponse) return auth
+
+    await connectToDatabase()
+
     const conversations = await Message.aggregate([
-      {
-        $match: {
-          $or: [
-            { sender: req.user?.username },
-            { receiver: req.user?.username }
-          ]
-        }
-      },
-      {
-        $sort: { createdAt: -1 }
-      },
+      { $match: { $or: [{ sender: auth.username }, { receiver: auth.username }] } },
+      { $sort: { createdAt: -1 } },
       {
         $group: {
-          _id: {
-            $cond: [
-              { $eq: ["$sender", req.user?.username] },
-              "$receiver",
-              "$sender"
-            ]
-          },
-          lastMessage: { $first: "$$ROOT" }
-        }
+          _id: { $cond: [{ $eq: ["$sender", auth.username] }, "$receiver", "$sender"] },
+          lastMessage: { $first: "$$ROOT" },
+        },
       },
-      {
-        $lookup: {
-          from: "users",
-          localField: "_id",
-          foreignField: "username",
-          as: "user"
-        }
-      },
-      {
-        $unwind: "$user"
-      },
+      { $lookup: { from: "users", localField: "_id", foreignField: "username", as: "user" } },
+      { $unwind: "$user" },
+      { $sort: { "lastMessage.createdAt": -1 } },
       {
         $project: {
           _id: 0,
@@ -72,63 +34,41 @@ export async function GET(req: AuthRequest) {
           lastMessage: {
             content: "$lastMessage.content",
             timestamp: "$lastMessage.createdAt",
-            sender: "$lastMessage.sender"
-          }
-        }
-      }
-    ]);
-    
-    return NextResponse.json(conversations);
+            sender: "$lastMessage.sender",
+          },
+        },
+      },
+    ])
+
+    return NextResponse.json(conversations)
   } catch (error) {
-    console.error('Get conversations error:', error);
-    return NextResponse.json(
-      { error: 'Failed to get conversations' },
-      { status: 500 }
-    );
+    return handleRouteError(error, "Get conversations error", "Failed to get conversations")
   }
 }
 
 // Send a new message
-export async function POST(req: AuthRequest) {
+export async function POST(req: Request) {
   try {
-    // Check authentication
-    const authResponse = await authMiddleware(req);
-    if (authResponse instanceof NextResponse) {
-      return authResponse;
-    }
-    
-    await connectDB();
-    
-    const { receiver, content } = await req.json();
-    
-    if (!receiver || !content) {
-      return NextResponse.json(
-        { error: 'Receiver and content are required' },
-        { status: 400 }
-      );
-    }
-    
-    // Create the message
-    const message = await Message.create({
-      sender: req.user?.username,
-      receiver,
-      content
-    });
-    
-    // Create a notification for the receiver
-    await createNotification(
-      req.user?.username || '',
-      receiver,
-      'message',
-      'sent you a message'
-    );
-    
-    return NextResponse.json(message);
+    const auth = await requireAuth(req)
+    if (auth instanceof NextResponse) return auth
+
+    const body = await readJson(req)
+    const receiver = typeof body?.receiver === "string" ? body.receiver.trim() : ""
+    const content = typeof body?.content === "string" ? body.content.trim() : ""
+
+    if (!receiver || !content) return jsonError("Receiver and content are required", 400)
+    if (content.length > 2000) return jsonError("Message must be 2000 characters or fewer", 400)
+    if (receiver === auth.username) return jsonError("You cannot message yourself", 400)
+
+    await connectToDatabase()
+
+    if (!(await User.exists({ username: receiver }))) return jsonError("User not found", 404)
+
+    const message = await Message.create({ sender: auth.username, receiver, content })
+    await createNotification(auth.username, receiver, "message", "sent you a message")
+
+    return NextResponse.json(message, { status: 201 })
   } catch (error) {
-    console.error('Send message error:', error);
-    return NextResponse.json(
-      { error: 'Failed to send message' },
-      { status: 500 }
-    );
+    return handleRouteError(error, "Send message error", "Failed to send message")
   }
-} 
+}

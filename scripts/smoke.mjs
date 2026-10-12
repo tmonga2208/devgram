@@ -294,6 +294,73 @@ const sections = {
     const unfollow = await api("POST", `/api/users/${names.a}/follow`, { token: b.token })
     check("second follow unfollows", unfollow.data?.following === false && unfollow.data?.followers === 0 && unfollow.data?.followingCount === 0, unfollow.text.slice(0, 120))
   },
+  async social() {
+    await ensureUsers()
+    const { a, b } = state
+
+    const msgAnon = await api("POST", "/api/messages", { body: { receiver: names.a, content: "hi" } })
+    check("message without token is 401", msgAnon.status === 401, `status ${msgAnon.status}`)
+    const msgEmpty = await api("POST", "/api/messages", { token: b.token, body: { receiver: names.a, content: "  " } })
+    check("empty message is 400", msgEmpty.status === 400, `status ${msgEmpty.status}`)
+    const msgNobody = await api("POST", "/api/messages", { token: b.token, body: { receiver: `nobody_${run}`, content: "hi" } })
+    check("message to unknown user is 404", msgNobody.status === 404, `status ${msgNobody.status}`)
+    const msgSelf = await api("POST", "/api/messages", { token: b.token, body: { receiver: names.b, content: "hi" } })
+    check("message to yourself is 400", msgSelf.status === 400, `status ${msgSelf.status}`)
+    const msg = await api("POST", "/api/messages", { token: b.token, body: { receiver: names.a, content: `hello ${run}` } })
+    check("message is 201", msg.status === 201 && msg.data?.sender === names.b && msg.data?.content === `hello ${run}`, `status ${msg.status} ${msg.text.slice(0, 120)}`)
+
+    const convAnon = await api("GET", "/api/messages")
+    check("conversations without token is 401", convAnon.status === 401, `status ${convAnon.status}`)
+    const conv = await api("GET", "/api/messages", { token: a.token })
+    const withB = Array.isArray(conv.data) ? conv.data.find((c) => c.username === names.b) : null
+    check("receiver sees the conversation", conv.status === 200 && withB?.lastMessage?.content === `hello ${run}`, conv.text.slice(0, 160))
+    const thread = await api("GET", `/api/messages/${names.b}`, { token: a.token })
+    check("thread has the message", thread.status === 200 && thread.data?.length === 1 && thread.data[0].content === `hello ${run}`, `status ${thread.status}`)
+    const threadAnon = await api("GET", `/api/messages/${names.b}`)
+    check("thread without token is 401", threadAnon.status === 401, `status ${threadAnon.status}`)
+
+    const post = await api("POST", "/api/posts", { token: a.token, body: { caption: `searchable${run} cc @${names.b}`, code: "x", language: "python" } })
+    const postId = post.data?._id
+    await api("POST", `/api/users/${names.a}/follow`, { token: b.token })
+    await api("POST", `/api/posts/${postId}/like`, { token: b.token })
+    await api("POST", `/api/posts/${postId}/comments`, { token: b.token, body: { text: "commenting" } })
+    await api("POST", `/api/posts/${postId}/like`, { token: a.token })
+
+    const notifAnon = await api("GET", "/api/notifications")
+    check("notifications without token is 401", notifAnon.status === 401, `status ${notifAnon.status}`)
+    const notifs = await api("GET", "/api/notifications", { token: a.token })
+    const types = Array.isArray(notifs.data) ? notifs.data.map((n) => n.type) : []
+    check("notifications is 200", notifs.status === 200, `status ${notifs.status} ${notifs.text.slice(0, 120)}`)
+    for (const type of ["message", "follow", "like", "comment"]) {
+      check(`has a ${type} notification`, types.includes(type), `types ${types.join(",")}`)
+    }
+    check("notifications carry the sender", notifs.data?.every?.((n) => n.user?.username === names.b))
+    check("liking your own post does not notify you", notifs.data?.filter?.((n) => n.type === "like" && n.postId === postId).length === 1)
+    const bNotifs = await api("GET", "/api/notifications", { token: b.token })
+    check("mentioned user gets a mention notification", bNotifs.data?.some?.((n) => n.type === "mention" && n.postId === postId))
+
+    const ids = (notifs.data || []).map((n) => n._id)
+    const markBad = await api("PATCH", "/api/notifications", { token: a.token, body: { notificationIds: "nope" } })
+    check("mark read with bad body is 400", markBad.status === 400, `status ${markBad.status}`)
+    const markOther = await api("PATCH", "/api/notifications", { token: b.token, body: { notificationIds: ids } })
+    check("marking someone else's notifications changes nothing", markOther.status === 200 && markOther.data?.modified === 0, markOther.text.slice(0, 120))
+    const mark = await api("PATCH", "/api/notifications", { token: a.token, body: { notificationIds: ids } })
+    check("mark read is 200", mark.status === 200 && mark.data?.modified === ids.length, mark.text.slice(0, 120))
+    const after = await api("GET", "/api/notifications", { token: a.token })
+    check("notifications are read", after.data?.every?.((n) => n.read === true))
+
+    const noQuery = await api("GET", "/api/search")
+    check("search without q is 400", noQuery.status === 400, `status ${noQuery.status}`)
+    const users = await api("GET", `/api/search?q=${run}&type=users`)
+    check("search finds both users without a token", users.status === 200 && users.data?.users?.length === 2 && users.data?.posts?.length === 0, users.text.slice(0, 160))
+    check("search results hide email and password", users.data?.users?.every?.((u) => !("email" in u) && !("password" in u)))
+    const posts = await api("GET", `/api/search?q=searchable${run}&type=posts`)
+    check("search finds the post by caption", posts.data?.posts?.some?.((p) => p._id === postId && p.caption.includes(`searchable${run}`)))
+    const byComment = await api("GET", "/api/search?q=commenting&type=posts")
+    check("search finds the post by comment text", byComment.data?.posts?.some?.((p) => p._id === postId))
+    const meta = await api("GET", `/api/search?q=${encodeURIComponent("(.*")}`)
+    check("regex metacharacters are 200 with no matches", meta.status === 200 && meta.data?.users?.length === 0, `status ${meta.status}`)
+  },
 }
 
 async function cleanup() {
