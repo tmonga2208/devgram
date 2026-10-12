@@ -144,7 +144,7 @@ exporting `escapeRegex`.
 | `POST /api/posts/[id]/save` | new; toggles the username in `savedBy` atomically |
 | `POST /api/posts/[id]/comments` | use `requireAuth`; fix the author comparison; return the stored comment including `_id` |
 | `GET /api/posts/similar/[id]` | match on `language`, falling back to the same author; no regex on user text |
-| `GET /api/search` | search `caption`, `author.username`, `comments.text` with escaped input |
+| `GET /api/search` | public, like the feed and profiles it links to; search `caption`, `author.username`, `comments.text` with escaped input |
 | `GET /api/users/[username]` | async `params`; use `getAuthUser` for `isFollowing` |
 | `PATCH /api/users/[username]` | deleted; its only caller is the unused settings page |
 | `PATCH /api/users/profile` | use `requireAuth`; accept `fullName`, `bio`, `website`, `avatar`, `email` (unique), password change, `notificationSettings`, `privacySettings`; reject `username`; allow clearing `bio` and `website` |
