@@ -31,7 +31,7 @@ interface Conversation {
 }
 
 export function DirectMessages() {
-  const { user, token } = useAuth()
+  const { user, token, authFetch } = useAuth()
   const searchParams = useSearchParams()
   const [activeChat, setActiveChat] = useState<string | null>(null)
   const [message, setMessage] = useState("")
@@ -45,11 +45,7 @@ export function DirectMessages() {
   useEffect(() => {
     const fetchConversations = async () => {
       try {
-        const response = await fetch("/api/messages", {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        })
+        const response = await authFetch("/api/messages")
         if (!response.ok) throw new Error("Failed to fetch conversations")
         const data = await response.json()
         setConversations(data)
@@ -95,18 +91,14 @@ export function DirectMessages() {
     if (token) {
       fetchConversations()
     }
-  }, [token, userParam])
+  }, [token, userParam, authFetch])
 
   useEffect(() => {
     const fetchMessages = async () => {
       if (!activeChat || !token) return
 
       try {
-        const response = await fetch(`/api/messages/${activeChat}`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        })
+        const response = await authFetch(`/api/messages/${activeChat}`)
         if (!response.ok) throw new Error("Failed to fetch messages")
         const data = await response.json()
         setMessages(data)
@@ -117,7 +109,7 @@ export function DirectMessages() {
     }
 
     fetchMessages()
-  }, [activeChat, token])
+  }, [activeChat, token, authFetch])
 
   // Fetch user data for the user parameter if needed
   useEffect(() => {
@@ -132,11 +124,7 @@ export function DirectMessages() {
         
         if (!existingConversation) {
           // Fetch user data
-          const response = await fetch(`/api/users/${userParam}`, {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          });
+          const response = await authFetch(`/api/users/${userParam}`);
           
           if (!response.ok) throw new Error("Failed to fetch user data");
           
@@ -161,28 +149,24 @@ export function DirectMessages() {
     };
     
     fetchUserData();
-  }, [userParam, token, conversations]);
+  }, [userParam, token, conversations, authFetch]);
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!message.trim() || !activeChat || !token) return
 
     try {
-      const response = await fetch("/api/messages", {
+      const response = await authFetch("/api/messages", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           receiver: activeChat,
           content: message,
         }),
       })
 
-      if (!response.ok) throw new Error("Failed to send message")
-
-      const newMessage = await response.json()
+      const newMessage = await response.json().catch(() => null)
+      if (!response.ok || !newMessage) throw new Error(newMessage?.error || "Failed to send message")
       setMessages((prev) => [...prev, newMessage])
       setMessage("")
 
@@ -203,7 +187,7 @@ export function DirectMessages() {
       )
     } catch (err) {
       console.error("Error sending message:", err)
-      toast.error("Failed to send message")
+      toast.error(err instanceof Error ? err.message : "Failed to send message")
     }
   }
 

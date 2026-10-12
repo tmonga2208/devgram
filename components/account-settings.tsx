@@ -1,56 +1,58 @@
 "use client"
 
-import { useState } from "react"
-import { useAuth } from "@/contexts/auth-context"
+import { useEffect, useState } from "react"
+import { useAuth, type ProfileUpdate } from "@/contexts/auth-context"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Switch } from "@/components/ui/switch"
-import { toast } from "sonner"
+import toast from "react-hot-toast"
 
 export function AccountSettings() {
   const { user, updateProfile } = useAuth()
   const [isLoading, setIsLoading] = useState(false)
   const [formData, setFormData] = useState({
-    email: user?.email || "",
+    email: "",
     currentPassword: "",
     newPassword: "",
     confirmPassword: "",
-    twoFactorEnabled: false,
   })
+
+  const savedEmail = user?.email || ""
+  useEffect(() => {
+    setFormData((prev) => ({ ...prev, email: savedEmail }))
+  }, [savedEmail])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setIsLoading(true)
 
-    try {
-      if (formData.newPassword) {
-        if (formData.newPassword !== formData.confirmPassword) {
-          toast.error("New passwords don't match")
-          return
-        }
-        if (!formData.currentPassword) {
-          toast.error("Current password is required")
-          return
-        }
+    const update: ProfileUpdate = {}
+    if (formData.email !== savedEmail) update.email = formData.email
+
+    if (formData.newPassword) {
+      if (formData.newPassword !== formData.confirmPassword) {
+        toast.error("New passwords don't match")
+        return
       }
+      if (!formData.currentPassword) {
+        toast.error("Current password is required")
+        return
+      }
+      update.currentPassword = formData.currentPassword
+      update.newPassword = formData.newPassword
+    }
 
-      await updateProfile({
-        email: formData.email,
-        currentPassword: formData.currentPassword,
-        newPassword: formData.newPassword,
-        twoFactorEnabled: formData.twoFactorEnabled,
-      })
+    if (Object.keys(update).length === 0) {
+      toast("Nothing to update")
+      return
+    }
 
+    setIsLoading(true)
+    try {
+      await updateProfile(update)
       toast.success("Account settings updated")
-      setFormData({
-        ...formData,
-        currentPassword: "",
-        newPassword: "",
-        confirmPassword: "",
-      })
+      setFormData((prev) => ({ ...prev, currentPassword: "", newPassword: "", confirmPassword: "" }))
     } catch (error) {
-      toast.error("Failed to update account settings")
+      toast.error(error instanceof Error ? error.message : "Failed to update account settings")
     } finally {
       setIsLoading(false)
     }
@@ -75,6 +77,7 @@ export function AccountSettings() {
           <Input
             id="currentPassword"
             type="password"
+            autoComplete="current-password"
             value={formData.currentPassword}
             onChange={(e) => setFormData({ ...formData, currentPassword: e.target.value })}
           />
@@ -85,6 +88,8 @@ export function AccountSettings() {
           <Input
             id="newPassword"
             type="password"
+            autoComplete="new-password"
+            minLength={6}
             value={formData.newPassword}
             onChange={(e) => setFormData({ ...formData, newPassword: e.target.value })}
           />
@@ -95,19 +100,9 @@ export function AccountSettings() {
           <Input
             id="confirmPassword"
             type="password"
+            autoComplete="new-password"
             value={formData.confirmPassword}
             onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
-          />
-        </div>
-
-        <div className="flex items-center justify-between">
-          <Label htmlFor="twoFactor">Two-Factor Authentication</Label>
-          <Switch
-            id="twoFactor"
-            checked={formData.twoFactorEnabled}
-            onCheckedChange={(checked) =>
-              setFormData({ ...formData, twoFactorEnabled: checked })
-            }
           />
         </div>
       </div>
@@ -117,4 +112,4 @@ export function AccountSettings() {
       </Button>
     </form>
   )
-} 
+}

@@ -5,7 +5,6 @@ import { MainLayout } from "@/components/main-layout"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Card, CardContent } from "@/components/ui/card"
-import { useAuth } from "@/contexts/auth-context"
 import Link from "next/link"
 import { formatDistanceToNow } from "date-fns"
 
@@ -19,10 +18,9 @@ interface SearchResult {
   }>
   posts: Array<{
     _id: string
-    content: string
+    caption: string
     image?: string
     author: {
-      _id: string
       username: string
       avatar: string
     }
@@ -37,7 +35,6 @@ export function SearchPage() {
   const [results, setResults] = useState<SearchResult>({ users: [], posts: [] })
   const [isLoading, setIsLoading] = useState(false)
   const [activeTab, setActiveTab] = useState(type)
-  const { token } = useAuth()
 
   useEffect(() => {
     const fetchResults = async () => {
@@ -48,11 +45,7 @@ export function SearchPage() {
 
       setIsLoading(true)
       try {
-        const response = await fetch(`/api/search?q=${encodeURIComponent(query)}&type=${activeTab}`, {
-          headers: {
-            Authorization: `Bearer ${token}`
-          }
-        })
+        const response = await fetch(`/api/search?q=${encodeURIComponent(query)}&type=${activeTab}`)
 
         if (!response.ok) {
           throw new Error("Search failed")
@@ -68,7 +61,7 @@ export function SearchPage() {
     }
 
     fetchResults()
-  }, [query, activeTab, token])
+  }, [query, activeTab])
 
   return (
     <MainLayout>
@@ -144,7 +137,7 @@ export function SearchPage() {
                                   </div>
                                 </div>
                               </div>
-                              <p className="line-clamp-3">{post.content}</p>
+                              <p className="line-clamp-3">{post.caption}</p>
                               {post.image && (
                                 <div className="mt-3 aspect-video overflow-hidden rounded-md">
                                   <img
@@ -232,7 +225,7 @@ export function SearchPage() {
                             </div>
                           </div>
                         </div>
-                        <p className="line-clamp-3">{post.content}</p>
+                        <p className="line-clamp-3">{post.caption}</p>
                         {post.image && (
                           <div className="mt-3 aspect-video overflow-hidden rounded-md">
                             <img

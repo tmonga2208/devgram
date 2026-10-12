@@ -23,7 +23,7 @@ interface Notification {
 }
 
 export function NotificationsPage() {
-  const { token } = useAuth()
+  const { token, authFetch } = useAuth()
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState("all")
@@ -33,11 +33,7 @@ export function NotificationsPage() {
       if (!token) return
       
       try {
-        const response = await fetch("/api/notifications", {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        })
+        const response = await authFetch("/api/notifications")
         
         if (!response.ok) throw new Error("Failed to fetch notifications")
         
@@ -52,18 +48,15 @@ export function NotificationsPage() {
     }
 
     fetchNotifications()
-  }, [token])
+  }, [token, authFetch])
 
   const markAsRead = async (notificationIds: string[]) => {
     if (!token || notificationIds.length === 0) return
     
     try {
-      const response = await fetch("/api/notifications", {
+      const response = await authFetch("/api/notifications", {
         method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ notificationIds }),
       })
       

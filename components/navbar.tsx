@@ -27,17 +27,21 @@ export function Navbar() {
           </div>
           
           <nav className="hidden items-center space-x-2 md:flex">
-            <Button variant="ghost" size="icon">
-              <PlusSquare className="h-5 w-5" />
-              <span className="sr-only">Create</span>
+            <Button variant="ghost" size="icon" asChild>
+              <Link href="/create">
+                <PlusSquare className="h-5 w-5" />
+                <span className="sr-only">Create</span>
+              </Link>
             </Button>
-            <Button variant="ghost" size="icon">
-              <Heart className="h-5 w-5" />
-              <span className="sr-only">Notifications</span>
+            <Button variant="ghost" size="icon" asChild>
+              <Link href="/notifications">
+                <Heart className="h-5 w-5" />
+                <span className="sr-only">Notifications</span>
+              </Link>
             </Button>
             <Link href={user ? `/profile/${user.username}` : "/login"}>
               <Avatar className="h-8 w-8">
-                <AvatarImage src={user?.avatar || "/placeholder.svg?height=32&width=32"} alt={user?.username || "User"} />
+                <AvatarImage src={user?.avatar || "/placeholder.svg"} alt={user?.username || "User"} />
                 <AvatarFallback>{user?.username?.slice(0, 2).toUpperCase() || "U"}</AvatarFallback>
               </Avatar>
             </Link>

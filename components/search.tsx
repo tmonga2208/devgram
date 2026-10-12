@@ -1,3 +1,5 @@
+"use client"
+
 import { useState, useEffect, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { Search as SearchIcon } from "lucide-react"
@@ -6,7 +8,6 @@ import { Input } from "@/components/ui/input"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Card, CardContent } from "@/components/ui/card"
-import { useAuth } from "@/contexts/auth-context"
 import Link from "next/link"
 
 interface SearchResult {
@@ -19,10 +20,9 @@ interface SearchResult {
   }>
   posts: Array<{
     _id: string
-    content: string
+    caption: string
     image?: string
     author: {
-      _id: string
       username: string
       avatar: string
     }
@@ -38,7 +38,6 @@ export function Search() {
   const [showResults, setShowResults] = useState(false)
   const searchRef = useRef<HTMLDivElement>(null)
   const router = useRouter()
-  const { token } = useAuth()
 
   // Handle click outside to close search results
   useEffect(() => {
@@ -64,11 +63,7 @@ export function Search() {
 
       setIsLoading(true)
       try {
-        const response = await fetch(`/api/search?q=${encodeURIComponent(query)}&type=${activeTab}`, {
-          headers: {
-            Authorization: `Bearer ${token}`
-          }
-        })
+        const response = await fetch(`/api/search?q=${encodeURIComponent(query)}&type=${activeTab}`)
 
         if (!response.ok) {
           throw new Error("Search failed")
@@ -86,7 +81,7 @@ export function Search() {
 
     const debounceTimer = setTimeout(fetchResults, 300)
     return () => clearTimeout(debounceTimer)
-  }, [query, activeTab, token])
+  }, [query, activeTab])
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault()
@@ -174,7 +169,7 @@ export function Search() {
                                 </Avatar>
                                 <span className="text-sm font-medium">{post.author.username}</span>
                               </div>
-                              <p className="mt-1 text-sm line-clamp-2">{post.content}</p>
+                              <p className="mt-1 text-sm line-clamp-2">{post.caption}</p>
                             </Link>
                           ))}
                         </div>
@@ -239,7 +234,7 @@ export function Search() {
                           </Avatar>
                           <span className="text-sm font-medium">{post.author.username}</span>
                         </div>
-                        <p className="mt-1 text-sm line-clamp-2">{post.content}</p>
+                        <p className="mt-1 text-sm line-clamp-2">{post.caption}</p>
                       </Link>
                     ))}
                   </div>
