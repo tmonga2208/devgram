@@ -1,174 +1,109 @@
 "use client"
 
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { createContext, useCallback, useContext, useState, useEffect, ReactNode } from 'react';
 import { useAuth } from './auth-context';
 import type { PostType, CommentType } from "@/lib/types"
+
+export interface NewPost {
+  caption: string;
+  image?: string;
+  video?: string;
+  code?: string;
+  language?: string;
+}
 
 interface PostsContextType {
   posts: PostType[];
   loading: boolean;
   error: string | null;
   fetchPosts: () => Promise<void>;
-  createPost: (data: Partial<PostType>) => Promise<void>;
+  createPost: (data: NewPost) => Promise<void>;
   likePost: (postId: string) => Promise<PostType>;
-  savePost: (postId: string) => Promise<void>;
+  savePost: (postId: string) => Promise<PostType>;
   addComment: (postId: string, text: string) => Promise<CommentType>;
   deletePost: (postId: string) => Promise<void>;
 }
 
 const PostsContext = createContext<PostsContextType | undefined>(undefined);
 
+// Parses a successful response, or throws an Error with the server's message.
+async function parseOrThrow<T>(response: Response, fallback: string): Promise<T> {
+  const data = await response.json().catch(() => null);
+  if (!response.ok || data === null) {
+    throw new Error(data?.error || fallback);
+  }
+  return data as T;
+}
+
 export function PostsProvider({ children }: { children: ReactNode }) {
   const [posts, setPosts] = useState<PostType[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const { token, user } = useAuth();
+  const { authFetch } = useAuth();
 
-  const fetchPosts = async () => {
+  const fetchPosts = useCallback(async () => {
     try {
       setLoading(true);
       const response = await fetch('/api/posts');
-      
-      if (!response.ok) {
-        throw new Error('Failed to fetch posts');
-      }
-      
-      const data = await response.json();
-      setPosts(data);
+      setPosts(await parseOrThrow<PostType[]>(response, 'Failed to fetch posts'));
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch posts');
     } finally {
       setLoading(false);
     }
+  }, []);
+
+  const replacePost = (updated: PostType) => {
+    setPosts(prevPosts => prevPosts.map(post => (post._id === updated._id ? updated : post)));
   };
 
-  const createPost = async (data: Partial<PostType>) => {
-    try {
-      const response = await fetch('/api/posts', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify(data),
-      });
-      
-      if (!response.ok) {
-        throw new Error('Failed to create post');
-      }
-      
-      const newPost = await response.json();
-      setPosts(prevPosts => [newPost, ...prevPosts]);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create post');
-      throw err;
-    }
+  const postJson = (path: string, body?: unknown) =>
+    authFetch(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+
+  const createPost = async (data: NewPost) => {
+    const newPost = await parseOrThrow<PostType>(await postJson('/api/posts', data), 'Failed to create post');
+    setPosts(prevPosts => [newPost, ...prevPosts]);
   };
 
   const likePost = async (postId: string) => {
-    try {
-      const response = await fetch(`/api/posts/${postId}/like`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-      })
-
-      if (!response.ok) {
-        throw new Error('Failed to like post')
-      }
-
-      const updatedPost = await response.json()
-      
-      // Update the post in the posts array
-      setPosts(posts.map(post => 
-        post._id === postId ? {
-          ...post,
-          likes: updatedPost.likes,
-          likedBy: updatedPost.likedBy
-        } : post
-      ))
-
-      return updatedPost
-    } catch (error) {
-      console.error('Error liking post:', error)
-      throw error
-    }
-  }
-
-  const savePost = async (postId: string) => {
-    try {
-      const response = await fetch(`/api/posts/${postId}/save`, {
-        method: 'POST',
-      });
-      
-      if (!response.ok) {
-        throw new Error('Failed to save post');
-      }
-      
-      setPosts(prevPosts => 
-        prevPosts.map(post => 
-          post._id === postId ? { ...post, saved: !post.saved } : post
-        )
-      );
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save post');
-    }
+    const updated = await parseOrThrow<PostType>(await postJson(`/api/posts/${postId}/like`), 'Failed to update like');
+    replacePost(updated);
+    return updated;
   };
 
-  const addComment = async (postId: string, text: string): Promise<CommentType> => {
-    try {
-      const response = await fetch(`/api/posts/${postId}/comments`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({ text }),
-      });
-      
-      if (!response.ok) {
-        throw new Error('Failed to add comment');
-      }
-      
-      const newComment = await response.json();
-      setPosts(prevPosts => 
-        prevPosts.map(post => 
-          post._id === postId ? { ...post, comments: [...post.comments, newComment] } : post
-        )
-      );
+  const savePost = async (postId: string) => {
+    const updated = await parseOrThrow<PostType>(await postJson(`/api/posts/${postId}/save`), 'Failed to update save');
+    replacePost(updated);
+    return updated;
+  };
 
-      return newComment;
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to add comment');
-      throw err;
-    }
+  const addComment = async (postId: string, text: string) => {
+    const newComment = await parseOrThrow<CommentType>(
+      await postJson(`/api/posts/${postId}/comments`, { text }),
+      'Failed to add comment'
+    );
+    setPosts(prevPosts =>
+      prevPosts.map(post =>
+        post._id === postId ? { ...post, comments: [...post.comments, newComment] } : post
+      )
+    );
+    return newComment;
   };
 
   const deletePost = async (postId: string) => {
-    try {
-      const response = await fetch(`/api/posts/${postId}`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      });
-      
-      if (!response.ok) {
-        throw new Error('Failed to delete post');
-      }
-      
-      setPosts(prevPosts => prevPosts.filter(post => post._id !== postId));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete post');
-    }
+    const response = await authFetch(`/api/posts/${postId}`, { method: 'DELETE' });
+    await parseOrThrow<{ message: string }>(response, 'Failed to delete post');
+    setPosts(prevPosts => prevPosts.filter(post => post._id !== postId));
   };
 
   useEffect(() => {
     fetchPosts();
-  }, []);
+  }, [fetchPosts]);
 
   return (
     <PostsContext.Provider
@@ -195,4 +130,4 @@ export function usePosts() {
     throw new Error('usePosts must be used within a PostsProvider');
   }
   return context;
-} 
+}

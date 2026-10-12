@@ -6,14 +6,13 @@ import { jwtVerify } from 'jose'
 const protectedPaths = [
   '/settings',
   '/profile',
-  '/messages',
+  '/direct',
   '/notifications',
-  '/create-post',
-  '/edit-profile'
+  '/create'
 ]
 
 // Add paths that should redirect to home if user is already authenticated
-const authPaths = ['/login', '/signup', '/forgot-password']
+const authPaths = ['/login', '/register']
 
 export async function middleware(request: NextRequest) {
   const token = request.cookies.get('token')

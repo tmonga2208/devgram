@@ -1,33 +1,38 @@
+export interface NotificationSettings {
+  email: boolean
+  push: boolean
+  followers: boolean
+  comments: boolean
+  likes: boolean
+  mentions: boolean
+  marketing: boolean
+}
+
+export interface PrivacySettings {
+  isPrivate: boolean
+  showActivityStatus: boolean
+  allowTagging: boolean
+  allowMessaging: boolean
+  showPosts: boolean
+  showStories: boolean
+}
+
+// A public profile, as returned by GET /api/users/[username]
 export interface UserType {
+  _id: string
   username: string
   fullName: string
   avatar: string
   bio: string
-  website?: string
+  website: string
   followers: number
   following: number
   isVerified: boolean
-  twoFactorEnabled: boolean
-  notificationSettings: {
-    email: boolean
-    push: boolean
-    followers: boolean
-    comments: boolean
-    likes: boolean
-    mentions: boolean
-    marketing: boolean
-  }
-  privacySettings: {
-    isPrivate: boolean
-    showActivityStatus: boolean
-    allowTagging: boolean
-    allowMessaging: boolean
-    showPosts: boolean
-    showStories: boolean
-  }
+  isFollowing: boolean
 }
 
 export interface CommentType {
+  _id: string
   username: string
   avatar: string
   text: string
@@ -37,21 +42,19 @@ export interface CommentType {
 
 export interface PostType {
   _id: string
-  content: string
+  caption: string
   image?: string
   video?: string
   code?: string
   language?: string
-  caption?: string
   author: {
     username: string
     avatar: string
-    verified?: boolean
   }
   likes: number
   comments: CommentType[]
   likedBy: string[]
-  saved: boolean
+  savedBy: string[]
   createdAt: string
   updatedAt: string
 }

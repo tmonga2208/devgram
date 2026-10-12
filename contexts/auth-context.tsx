@@ -1,10 +1,11 @@
 "use client"
 
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useState, ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import Cookies from 'js-cookie';
+import type { NotificationSettings, PrivacySettings } from '@/lib/types';
 
-interface User {
+export interface User {
   id: string;
   username: string;
   email: string;
@@ -12,6 +13,20 @@ interface User {
   avatar: string;
   bio?: string;
   website?: string;
+  notificationSettings?: NotificationSettings;
+  privacySettings?: PrivacySettings;
+}
+
+export interface ProfileUpdate {
+  fullName?: string;
+  bio?: string;
+  website?: string;
+  avatar?: string;
+  email?: string;
+  currentPassword?: string;
+  newPassword?: string;
+  notificationSettings?: Partial<NotificationSettings>;
+  privacySettings?: Partial<PrivacySettings>;
 }
 
 interface AuthContextType {
@@ -22,10 +37,25 @@ interface AuthContextType {
   register: (username: string, email: string, password: string, fullName: string) => Promise<void>;
   logout: () => void;
   isAuthenticated: boolean;
-  updateProfile: (data: Partial<User>) => Promise<void>;
+  updateProfile: (data: ProfileUpdate) => Promise<void>;
+  authFetch: (input: string, init?: RequestInit) => Promise<Response>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+function readStoredUser(): User | null {
+  try {
+    const raw = localStorage.getItem('user');
+    return raw ? (JSON.parse(raw) as User) : null;
+  } catch {
+    return null;
+  }
+}
+
+function setTokenCookie(token: string) {
+  // Read by middleware.ts to protect pages
+  Cookies.set('token', token, { expires: 7, sameSite: 'lax' });
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -33,116 +63,102 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const router = useRouter();
 
-  useEffect(() => {
-    // Check for stored auth data on mount
-    const storedToken = localStorage.getItem('token');
-    const storedUser = localStorage.getItem('user');
-    
-    if (storedToken && storedUser) {
-      setToken(storedToken);
-      setUser(JSON.parse(storedUser));
-      // Set cookie for middleware
-      Cookies.set('token', storedToken, { expires: 7 }); // 7 days
-    }
-    
-    setLoading(false);
+  const storeUser = useCallback((nextUser: User) => {
+    setUser(nextUser);
+    localStorage.setItem('user', JSON.stringify(nextUser));
   }, []);
 
-  const login = async (email: string, password: string) => {
-    try {
-      const response = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ email, password }),
-      });
+  const storeSession = useCallback((nextToken: string, nextUser: User) => {
+    setToken(nextToken);
+    localStorage.setItem('token', nextToken);
+    setTokenCookie(nextToken);
+    storeUser(nextUser);
+  }, [storeUser]);
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Login failed');
-      }
-
-      setToken(data.token);
-      setUser(data.user);
-      
-      localStorage.setItem('token', data.token);
-      localStorage.setItem('user', JSON.stringify(data.user));
-      // Set cookie for middleware
-      Cookies.set('token', data.token, { expires: 7 }); // 7 days
-      
-      router.push('/');
-    } catch (error) {
-      console.error('Login error:', error);
-      throw error;
-    }
-  };
-
-  const register = async (username: string, email: string, password: string, fullName: string) => {
-    try {
-      const response = await fetch('/api/auth/register', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ username, email, password, fullName }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Registration failed');
-      }
-
-      setToken(data.token);
-      setUser(data.user);
-      
-      localStorage.setItem('token', data.token);
-      localStorage.setItem('user', JSON.stringify(data.user));
-      // Set cookie for middleware
-      Cookies.set('token', data.token, { expires: 7 }); // 7 days
-      
-      router.push('/');
-    } catch (error) {
-      console.error('Registration error:', error);
-      throw error;
-    }
-  };
-
-  const logout = () => {
+  const logout = useCallback(() => {
     setUser(null);
     setToken(null);
     localStorage.removeItem('token');
     localStorage.removeItem('user');
-    // Remove cookie for middleware
     Cookies.remove('token');
     router.push('/login');
-  };
+  }, [router]);
 
-  const updateProfile = async (data: Partial<User>) => {
-    try {
-      const response = await fetch('/api/users/profile', {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify(data),
+  const authFetch = useCallback(async (input: string, init: RequestInit = {}) => {
+    const headers = new Headers(init.headers);
+    if (token) headers.set('Authorization', `Bearer ${token}`);
+    const response = await fetch(input, { ...init, headers });
+    // An authenticated request answering 401 means the token expired or was revoked.
+    if (response.status === 401 && token) logout();
+    return response;
+  }, [token, logout]);
+
+  // Restore the stored session, then refresh the user from the server.
+  useEffect(() => {
+    const storedToken = localStorage.getItem('token');
+    const storedUser = readStoredUser();
+
+    if (!storedToken || !storedUser) {
+      setLoading(false);
+      return;
+    }
+
+    setToken(storedToken);
+    setUser(storedUser);
+    setTokenCookie(storedToken);
+    setLoading(false);
+
+    let cancelled = false;
+    fetch('/api/users/profile', { headers: { Authorization: `Bearer ${storedToken}` } })
+      .then(async (response) => {
+        if (cancelled) return;
+        if (response.status === 401) {
+          logout();
+        } else if (response.ok) {
+          const fresh = (await response.json()) as User;
+          if (!cancelled) storeUser(fresh);
+        }
+      })
+      .catch(() => {
+        // Offline or server down: keep the stored session.
       });
 
-      const updatedUser = await response.json();
+    return () => {
+      cancelled = true;
+    };
+  }, [logout, storeUser]);
 
-      if (!response.ok) {
-        throw new Error(updatedUser.error || 'Failed to update profile');
-      }
-
-      setUser(updatedUser);
-      localStorage.setItem('user', JSON.stringify(updatedUser));
-    } catch (error) {
-      console.error('Profile update error:', error);
-      throw error;
+  const authenticate = async (path: string, body: Record<string, string>, fallback: string) => {
+    const response = await fetch(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok || !data?.token) {
+      throw new Error(data?.error || fallback);
     }
+    storeSession(data.token, data.user);
+    router.push('/');
+  };
+
+  const login = (email: string, password: string) =>
+    authenticate('/api/auth/login', { email, password }, 'Login failed');
+
+  const register = (username: string, email: string, password: string, fullName: string) =>
+    authenticate('/api/auth/register', { username, email, password, fullName }, 'Registration failed');
+
+  const updateProfile = async (data: ProfileUpdate) => {
+    const response = await authFetch('/api/users/profile', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    const updated = await response.json().catch(() => null);
+    if (!response.ok || !updated) {
+      throw new Error(updated?.error || 'Failed to update profile');
+    }
+    storeUser(updated as User);
   };
 
   return (
@@ -156,6 +172,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         logout,
         isAuthenticated: !!user,
         updateProfile,
+        authFetch,
       }}
     >
       {children}
@@ -169,4 +186,4 @@ export function useAuth() {
     throw new Error('useAuth must be used within an AuthProvider');
   }
   return context;
-} 
+}
