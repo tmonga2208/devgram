@@ -1,13 +1,13 @@
 "use client"
-import Image from "next/image"
+import Link from "next/link"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
-import { Grid, Settings } from "lucide-react"
+import { Bookmark, Grid, Settings } from "lucide-react"
 import { usePosts } from "@/contexts/posts-context"
 import { useAuth } from "@/contexts/auth-context"
 import { ProfilePost } from "@/components/profile-post"
 import { useEffect, useState } from "react"
-import type { PostType, UserType } from "@/lib/types"
+import type { UserType } from "@/lib/types"
 import { toast } from "react-hot-toast"
 import { useRouter } from "next/navigation"
 
@@ -16,73 +16,64 @@ interface ProfileProps {
 }
 
 export function Profile({ username }: ProfileProps) {
-  const { user: currentUser, token } = useAuth()
+  const { user: currentUser, authFetch, loading: authLoading } = useAuth()
   const { posts } = usePosts()
   const router = useRouter()
-  const [userPosts, setUserPosts] = useState<PostType[]>([])
-  const [savedPosts, setSavedPosts] = useState<PostType[]>([])
   const [user, setUser] = useState<UserType | null>(null)
   const [loading, setLoading] = useState(true)
-  const [isFollowing, setIsFollowing] = useState(false)
   const [followLoading, setFollowLoading] = useState(false)
 
   useEffect(() => {
+    // Wait for the stored session, so the request carries the token and
+    // the response's isFollowing is about this viewer.
+    if (authLoading) return
+    let cancelled = false
+
     const fetchUserProfile = async () => {
       try {
-        const response = await fetch(`/api/users/${username}`)
-        if (!response.ok) throw new Error('Failed to fetch user profile')
-        const userData = await response.json()
-        setUser(userData)
-        setIsFollowing(userData.isFollowing || false)
+        const response = await authFetch(`/api/users/${username}`)
+        if (cancelled) return
+        setUser(response.ok ? await response.json() : null)
       } catch (error) {
         console.error('Error fetching user profile:', error)
+        if (!cancelled) setUser(null)
       } finally {
-        setLoading(false)
+        if (!cancelled) setLoading(false)
       }
     }
 
     fetchUserProfile()
-  }, [username])
-
-  useEffect(() => {
-    if (posts) {
-      // Filter posts by this user
-      const userPosts = posts.filter((post) => post.author.username === username)
-      setUserPosts(userPosts)
-
-      // Filter saved posts
-      const savedPosts = posts.filter((post) => post.saved)
-      setSavedPosts(savedPosts)
+    return () => {
+      cancelled = true
     }
-  }, [posts, username])
+  }, [username, authFetch, authLoading])
+
+  const isOwnProfile = currentUser?.username === username
+  const userPosts = posts.filter((post) => post.author.username === username)
+  const savedPosts = currentUser
+    ? posts.filter((post) => (post.savedBy || []).includes(currentUser.username))
+    : []
 
   const handleFollow = async () => {
-    if (!token || !user) return;
-    
-    setFollowLoading(true);
-    try {
-      const response = await fetch(`/api/users/${username}/follow`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-      
-      if (!response.ok) throw new Error('Failed to follow/unfollow user');
-      
-      const data = await response.json();
-      setIsFollowing(data.following);
-      setUser(prev => prev ? {
-        ...prev,
-        followers: data.followers,
-      } : null);
-    } catch (error) {
-      console.error('Error following/unfollowing user:', error);
-      toast.error('Failed to follow/unfollow user');
-    } finally {
-      setFollowLoading(false);
+    if (!currentUser) {
+      router.push('/login')
+      return
     }
-  };
+    if (!user) return
+
+    setFollowLoading(true)
+    try {
+      const response = await authFetch(`/api/users/${username}/follow`, { method: 'POST' })
+      const data = await response.json().catch(() => null)
+      if (!response.ok || !data) throw new Error(data?.error || 'Failed to follow/unfollow user')
+
+      setUser(prev => prev ? { ...prev, isFollowing: data.following, followers: data.followers } : null)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to follow/unfollow user')
+    } finally {
+      setFollowLoading(false)
+    }
+  }
 
   const handleMessage = () => {
     router.push(`/direct?user=${username}`)
@@ -112,17 +103,15 @@ export function Profile({ username }: ProfileProps) {
     )
   }
 
-  const isOwnProfile = currentUser?.username === username
-
   return (
     <div className="mx-auto max-w-4xl">
       <div className="mb-8 flex flex-col items-center gap-6 md:flex-row md:items-start md:gap-10">
         <div className="relative h-24 w-24 overflow-hidden rounded-full md:h-36 md:w-36">
-          <Image 
-            src={user.avatar || "/placeholder.svg"} 
-            alt={user.username} 
-            fill 
-            className="object-cover" 
+          {/* eslint-disable-next-line @next/next/no-img-element -- user-supplied URL, any host */}
+          <img
+            src={user.avatar || "/placeholder.svg"}
+            alt={user.username}
+            className="h-full w-full object-cover"
           />
         </div>
         <div className="flex flex-1 flex-col items-center text-center md:items-start md:text-left">
@@ -131,20 +120,22 @@ export function Profile({ username }: ProfileProps) {
             <div className="flex gap-2">
               {!isOwnProfile && (
                 <>
-                  <Button 
+                  <Button
                     onClick={handleFollow}
                     disabled={followLoading}
-                    variant={isFollowing ? "outline" : "default"}
+                    variant={user.isFollowing ? "outline" : "default"}
                   >
-                    {isFollowing ? "Unfollow" : "Follow"}
+                    {user.isFollowing ? "Unfollow" : "Follow"}
                   </Button>
                   <Button variant="outline" onClick={handleMessage}>Message</Button>
                 </>
               )}
               {isOwnProfile && (
-                <Button variant="ghost" size="icon">
-                  <Settings className="h-4 w-4" />
-                  <span className="sr-only">Settings</span>
+                <Button variant="ghost" size="icon" asChild>
+                  <Link href="/settings">
+                    <Settings className="h-4 w-4" />
+                    <span className="sr-only">Settings</span>
+                  </Link>
                 </Button>
               )}
             </div>
@@ -180,30 +171,42 @@ export function Profile({ username }: ProfileProps) {
         </div>
       </div>
       <Tabs defaultValue="posts">
-        <TabsList className="grid w-full grid-cols-2">
+        <TabsList className={`grid w-full ${isOwnProfile ? "grid-cols-2" : "grid-cols-1"}`}>
           <TabsTrigger value="posts" className="flex items-center gap-2">
             <Grid className="h-4 w-4" />
             <span className="hidden sm:inline">Posts</span>
           </TabsTrigger>
-          <TabsTrigger value="saved" className="flex items-center gap-2">
-            <Settings className="h-4 w-4" />
-            <span className="hidden sm:inline">Saved</span>
-          </TabsTrigger>
+          {isOwnProfile && (
+            <TabsTrigger value="saved" className="flex items-center gap-2">
+              <Bookmark className="h-4 w-4" />
+              <span className="hidden sm:inline">Saved</span>
+            </TabsTrigger>
+          )}
         </TabsList>
         <TabsContent value="posts" className="mt-6">
-          <div className="grid grid-cols-3 gap-1 md:gap-4">
-            {userPosts.map((post) => (
-              <ProfilePost key={post._id} post={post} />
-            ))}
-          </div>
+          {userPosts.length === 0 ? (
+            <p className="py-10 text-center text-muted-foreground">No posts yet.</p>
+          ) : (
+            <div className="grid grid-cols-3 gap-1 md:gap-4">
+              {userPosts.map((post) => (
+                <ProfilePost key={post._id} post={post} />
+              ))}
+            </div>
+          )}
         </TabsContent>
-        <TabsContent value="saved" className="mt-6">
-          <div className="grid grid-cols-3 gap-1 md:gap-4">
-            {savedPosts.map((post) => (
-              <ProfilePost key={post._id} post={post} />
-            ))}
-          </div>
-        </TabsContent>
+        {isOwnProfile && (
+          <TabsContent value="saved" className="mt-6">
+            {savedPosts.length === 0 ? (
+              <p className="py-10 text-center text-muted-foreground">No saved posts yet.</p>
+            ) : (
+              <div className="grid grid-cols-3 gap-1 md:gap-4">
+                {savedPosts.map((post) => (
+                  <ProfilePost key={post._id} post={post} />
+                ))}
+              </div>
+            )}
+          </TabsContent>
+        )}
       </Tabs>
     </div>
   )

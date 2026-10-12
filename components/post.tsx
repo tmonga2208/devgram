@@ -1,8 +1,10 @@
 "use client"
 
 import { useState } from "react"
+import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Heart, MessageCircle, Bookmark, MoreHorizontal, Code, Image as ImageIcon, Video as VideoIcon } from "lucide-react"
+import { Heart, MessageCircle, Bookmark, MoreHorizontal, Code, Image as ImageIcon } from "lucide-react"
 import { formatDistanceToNow } from "date-fns"
 import { usePosts } from "@/contexts/posts-context"
 import { useAuth } from "@/contexts/auth-context"
@@ -13,33 +15,15 @@ import { Separator } from "@/components/ui/separator"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { CodeBlock } from "@/components/code-block"
 import { VideoPlayer } from "@/components/video-player"
+import type { PostType } from "@/lib/types"
 import toast from "react-hot-toast"
 
 interface PostProps {
-  post: {
-    _id: string;
-    author: {
-      username: string;
-      avatar: string;
-    };
-    image?: string;
-    video?: string;
-    code?: string;
-    language?: string;
-    caption: string;
-    likes: number;
-    comments: Array<{
-      _id: string;
-      username: string;
-      avatar: string;
-      text: string;
-      likes: number;
-      createdAt: string;
-    }>;
-    createdAt: string;
-    likedBy: Array<string>;
-    saved: boolean;
-  } & { [key: string]: any };
+  post: PostType
+}
+
+function messageOf(error: unknown, fallback: string) {
+  return error instanceof Error ? error.message : fallback
 }
 
 export function Post({ post }: PostProps) {
@@ -47,67 +31,58 @@ export function Post({ post }: PostProps) {
   const [showComments, setShowComments] = useState(false)
   const { likePost, savePost, addComment, deletePost } = usePosts()
   const { user } = useAuth()
-  const isAuthor = user?.username === post.author.username
+  const router = useRouter()
 
-  const isLiked = post.likedBy?.includes(user?.username || '')
-  const [likes, setLikes] = useState(post.likes)
+  const isAuthor = user?.username === post.author.username
+  const isLiked = !!user && (post.likedBy || []).includes(user.username)
+  const isSaved = !!user && (post.savedBy || []).includes(user.username)
+  const comments = post.comments || []
+
+  // Signed-out visitors are sent to log in instead of getting a failed request.
+  const requireUser = () => {
+    if (user) return true
+    router.push("/login")
+    return false
+  }
 
   const handleLike = async () => {
+    if (!requireUser()) return
     try {
-      const updatedPost = await likePost(post._id)
-      setLikes(updatedPost.likes)
-      toast.success(isLiked ? 'Post unliked' : 'Post liked')
+      await likePost(post._id)
     } catch (error) {
-      console.error('Error liking post:', error)
-      toast.error('Failed to update like')
+      toast.error(messageOf(error, "Failed to update like"))
     }
   }
 
   const handleSave = async () => {
+    if (!requireUser()) return
     try {
-      const promise = savePost(post._id)
-      toast.promise(promise, {
-        loading: 'Updating save...',
-        success: post.saved ? 'Post unsaved' : 'Post saved',
-        error: 'Failed to update save',
-      })
-      await promise
-    } catch {
-      toast.error('Failed to update save')
+      await savePost(post._id)
+      toast.success(isSaved ? "Post unsaved" : "Post saved")
+    } catch (error) {
+      toast.error(messageOf(error, "Failed to update save"))
     }
   }
 
   const handleComment = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!comment.trim()) return
-    
+
     try {
-      const promise = addComment(post._id, comment)
-      toast.promise(promise, {
-        loading: 'Adding comment...',
-        success: 'Comment added successfully',
-        error: 'Failed to add comment',
-      })
-      await promise
+      await addComment(post._id, comment)
       setComment("")
-    } catch {
-      toast.error('Failed to add comment')
+    } catch (error) {
+      toast.error(messageOf(error, "Failed to add comment"))
     }
   }
 
   const handleDelete = async () => {
-    if (window.confirm("Are you sure you want to delete this post?")) {
-      try {
-        const promise = deletePost(post._id)
-        toast.promise(promise, {
-          loading: 'Deleting post...',
-          success: 'Post deleted successfully',
-          error: 'Failed to delete post',
-        })
-        await promise
-      } catch {
-        toast.error('Failed to delete post')
-      }
+    if (!window.confirm("Are you sure you want to delete this post?")) return
+    try {
+      await deletePost(post._id)
+      toast.success("Post deleted successfully")
+    } catch (error) {
+      toast.error(messageOf(error, "Failed to delete post"))
     }
   }
 
@@ -115,18 +90,19 @@ export function Post({ post }: PostProps) {
     <div className="bg-white dark:bg-gray-900 rounded-lg shadow-md overflow-hidden">
       {/* Post Header */}
       <div className="p-4 flex items-center justify-between">
-        <div className="flex items-center">
+        <Link href={`/profile/${post.author.username}`} className="flex items-center">
           <Avatar className="h-8 w-8">
             <AvatarImage src={post.author.avatar} alt={post.author.username} />
             <AvatarFallback>{post.author.username[0].toUpperCase()}</AvatarFallback>
           </Avatar>
           <span className="ml-3 font-medium">{post.author.username}</span>
-        </div>
+        </Link>
         {isAuthor && (
           <Dialog>
             <DialogTrigger asChild>
               <Button variant="ghost" size="icon">
                 <MoreHorizontal className="h-5 w-5" />
+                <span className="sr-only">Post options</span>
               </Button>
             </DialogTrigger>
             <DialogContent>
@@ -134,11 +110,7 @@ export function Post({ post }: PostProps) {
                 <DialogTitle>Post Options</DialogTitle>
               </DialogHeader>
               <div className="py-4">
-                <Button 
-                  variant="destructive" 
-                  className="w-full" 
-                  onClick={handleDelete}
-                >
+                <Button variant="destructive" className="w-full" onClick={handleDelete}>
                   Delete Post
                 </Button>
               </div>
@@ -150,11 +122,8 @@ export function Post({ post }: PostProps) {
       {/* Post Content */}
       <div className="relative">
         {post.image ? (
-          <img 
-            src={post.image} 
-            alt={post.caption} 
-            className="w-full object-cover"
-          />
+          // eslint-disable-next-line @next/next/no-img-element -- user-supplied URL, any host
+          <img src={post.image} alt={post.caption} className="w-full object-cover" />
         ) : post.video ? (
           <VideoPlayer url={post.video} />
         ) : post.code ? (
@@ -169,24 +138,20 @@ export function Post({ post }: PostProps) {
           </div>
         ) : (
           <div className="h-64 bg-gray-200 dark:bg-gray-800 flex items-center justify-center">
-            {post.video ? (
-              <VideoIcon className="h-12 w-12 text-gray-400" />
-            ) : (
-              <ImageIcon className="h-12 w-12 text-gray-400" />
-            )}
+            <ImageIcon className="h-12 w-12 text-gray-400" />
           </div>
         )}
       </div>
 
       {/* Post Actions */}
       <div className="p-4">
-        <div className="flex items-center space-x-4 mb-2">
-          <TooltipProvider>
+        <TooltipProvider>
+          <div className="flex items-center space-x-4 mb-2">
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button 
-                  variant="ghost" 
-                  size="icon" 
+                <Button
+                  variant="ghost"
+                  size="icon"
                   onClick={handleLike}
                   className={`hover:bg-transparent ${isLiked ? "text-red-500 hover:text-red-600" : "text-gray-500 hover:text-gray-600"}`}
                 >
@@ -197,16 +162,10 @@ export function Post({ post }: PostProps) {
                 <p>{isLiked ? "Unlike" : "Like"}</p>
               </TooltipContent>
             </Tooltip>
-          </TooltipProvider>
 
-          <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button 
-                  variant="ghost" 
-                  size="icon" 
-                  onClick={() => setShowComments(!showComments)}
-                >
+                <Button variant="ghost" size="icon" onClick={() => setShowComments(!showComments)}>
                   <MessageCircle className="h-6 w-6" />
                 </Button>
               </TooltipTrigger>
@@ -214,64 +173,62 @@ export function Post({ post }: PostProps) {
                 <p>Comment</p>
               </TooltipContent>
             </Tooltip>
-          </TooltipProvider>
 
-          <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button 
-                  variant="ghost" 
-                  size="icon" 
+                <Button
+                  variant="ghost"
+                  size="icon"
                   onClick={handleSave}
-                  className={post.saved ? "text-blue-500" : ""}
+                  className={isSaved ? "text-blue-500" : ""}
                 >
-                  <Bookmark className={`h-6 w-6 ${post.saved ? "fill-current" : ""}`} />
+                  <Bookmark className={`h-6 w-6 ${isSaved ? "fill-current" : ""}`} />
                 </Button>
               </TooltipTrigger>
               <TooltipContent>
-                <p>{post.saved ? "Unsave" : "Save"}</p>
+                <p>{isSaved ? "Unsave" : "Save"}</p>
               </TooltipContent>
             </Tooltip>
-          </TooltipProvider>
-        </div>
+          </div>
+        </TooltipProvider>
 
-        <p className="font-medium">{likes} likes</p>
+        <p className="font-medium">{post.likes} likes</p>
         <p className="mt-1">
-          <span className="font-medium mr-2">{post.author.username}</span>
+          <Link href={`/profile/${post.author.username}`} className="font-medium mr-2">
+            {post.author.username}
+          </Link>
           {post.caption}
         </p>
-        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+        <Link href={`/p/${post._id}`} className="block text-xs text-gray-500 dark:text-gray-400 mt-1 hover:underline">
           {formatDistanceToNow(new Date(post.createdAt), { addSuffix: true })}
-        </p>
+        </Link>
 
         {/* Comments Section */}
         {showComments && (
           <div className="mt-4">
             <Separator className="my-2" />
-            
-            {/* Comments List */}
+
             <div className="space-y-2 max-h-48 overflow-y-auto">
-              {post.comments.map((comment) => (
-                <div key={comment._id} className="flex items-start">
+              {comments.map((item) => (
+                <div key={item._id} className="flex items-start">
                   <Avatar className="h-6 w-6 mr-2">
-                    <AvatarImage src={comment.avatar} alt={comment.username} />
-                    <AvatarFallback>{comment.username[0].toUpperCase()}</AvatarFallback>
+                    <AvatarImage src={item.avatar} alt={item.username} />
+                    <AvatarFallback>{item.username[0].toUpperCase()}</AvatarFallback>
                   </Avatar>
                   <div>
                     <p className="text-sm">
-                      <span className="font-medium mr-2">{comment.username}</span>
-                      {comment.text}
+                      <span className="font-medium mr-2">{item.username}</span>
+                      {item.text}
                     </p>
                     <p className="text-xs text-gray-500 dark:text-gray-400">
-                      {formatDistanceToNow(new Date(comment.createdAt), { addSuffix: true })}
+                      {formatDistanceToNow(new Date(item.createdAt), { addSuffix: true })}
                     </p>
                   </div>
                 </div>
               ))}
             </div>
 
-            {/* Comment Form */}
-            {user && (
+            {user ? (
               <form onSubmit={handleComment} className="mt-4">
                 <div className="flex items-center space-x-2">
                   <Avatar className="h-8 w-8">
@@ -293,6 +250,10 @@ export function Post({ post }: PostProps) {
                   </Button>
                 </div>
               </form>
+            ) : (
+              <p className="mt-4 text-sm text-gray-500 dark:text-gray-400">
+                <Link href="/login" className="text-blue-500 hover:underline">Log in</Link> to comment.
+              </p>
             )}
           </div>
         )}

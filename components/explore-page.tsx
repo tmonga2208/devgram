@@ -1,10 +1,21 @@
 "use client"
 
+import { useMemo } from "react"
 import { usePosts } from "@/contexts/posts-context"
 import { ExplorePost } from "@/components/explore-post"
 
 export function ExplorePage() {
   const { posts, loading, error } = usePosts()
+
+  // Shuffle once per set of posts, so liking a post does not reorder the grid.
+  const postIds = posts.map((post) => post._id).join(",")
+  const order = useMemo(
+    () => postIds.split(",").filter(Boolean).sort(() => Math.random() - 0.5),
+    [postIds]
+  )
+  const shuffledPosts = order
+    .map((id) => posts.find((post) => post._id === id))
+    .filter((post): post is (typeof posts)[number] => Boolean(post))
 
   if (loading) {
     return (
@@ -40,9 +51,6 @@ export function ExplorePage() {
       </div>
     )
   }
-
-  // Shuffle posts to show different content on each visit
-  const shuffledPosts = [...posts].sort(() => Math.random() - 0.5)
 
   return (
     <div className="mx-auto max-w-6xl">

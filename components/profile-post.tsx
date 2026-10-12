@@ -1,6 +1,5 @@
 import Link from "next/link"
-import Image from "next/image"
-import { Heart, MessageCircle, Code } from "lucide-react"
+import { Heart, MessageCircle, Code, Video } from "lucide-react"
 import type { PostType } from "@/lib/types"
 
 interface ProfilePostProps {
@@ -11,26 +10,26 @@ export function ProfilePost({ post }: ProfilePostProps) {
   return (
     <Link href={`/p/${post._id}`} className="group relative aspect-square overflow-hidden bg-muted">
       {post.image ? (
-        <Image
-          src={post.image || "/placeholder.svg"}
+        // eslint-disable-next-line @next/next/no-img-element -- user-supplied URL, any host
+        <img
+          src={post.image}
           alt="Post thumbnail"
-          fill
-          className="object-cover transition-transform group-hover:scale-105"
+          className="h-full w-full object-cover transition-transform group-hover:scale-105"
         />
-      ) : post.code ? (
+      ) : (
         <div className="flex h-full w-full items-center justify-center bg-zinc-950 text-zinc-50">
-          <Code className="h-8 w-8" />
+          {post.video ? <Video className="h-8 w-8" /> : <Code className="h-8 w-8" />}
         </div>
-      ) : null}
+      )}
       <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 transition-opacity group-hover:opacity-100">
         <div className="flex items-center gap-4 text-white">
           <div className="flex items-center gap-1">
             <Heart className="h-5 w-5 fill-white" />
-            <span className="text-sm font-medium">{post.likes}</span>
+            <span className="text-sm font-medium">{post.likes || 0}</span>
           </div>
           <div className="flex items-center gap-1">
             <MessageCircle className="h-5 w-5 fill-white" />
-            <span className="text-sm font-medium">{post.comments.length}</span>
+            <span className="text-sm font-medium">{(post.comments || []).length}</span>
           </div>
         </div>
       </div>

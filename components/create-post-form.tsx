@@ -71,9 +71,8 @@ export function CreatePostForm() {
       await promise
       router.push("/")
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : "Failed to create post"
-      setError(errorMessage)
-      toast.error(errorMessage)
+      // toast.promise above has already shown the error toast.
+      setError(err instanceof Error ? err.message : "Failed to create post")
     } finally {
       setIsSubmitting(false)
     }
