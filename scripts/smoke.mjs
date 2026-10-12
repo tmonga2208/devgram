@@ -65,6 +65,55 @@ const sections = {
     check("health responds 200", res.status === 200, `status ${res.status}`)
     check("mongodb connected", res.data?.mongodb === "connected", res.text.slice(0, 200))
   },
+  async auth() {
+    await ensureUsers()
+    check("register returns a token", typeof state.a.token === "string" && state.a.token.length > 20)
+    check("register returns the user", state.a.user?.username === names.a)
+    check("register response has no password", !("password" in (state.a.user || {})))
+    check("register response includes settings", state.a.user?.notificationSettings?.likes === true)
+
+    const dup = await api("POST", "/api/auth/register", {
+      body: { username: names.a, email: `other_${names.a}@example.com`, password: "smoke-pass-1", fullName: "Dup" },
+    })
+    check("duplicate username is 409", dup.status === 409, `status ${dup.status}`)
+
+    const missing = await api("POST", "/api/auth/register", { body: { username: `${names.a}x` } })
+    check("missing fields is 400", missing.status === 400, `status ${missing.status}`)
+
+    const shortPw = await api("POST", "/api/auth/register", {
+      body: { username: `${names.a}y`, email: `${names.a}y@example.com`, password: "123", fullName: "Short" },
+    })
+    check("short password is 400", shortPw.status === 400, `status ${shortPw.status}`)
+
+    const badName = await api("POST", "/api/auth/register", {
+      body: { username: "has space", email: `${names.a}z@example.com`, password: "smoke-pass-1", fullName: "Bad" },
+    })
+    check("invalid username is 400", badName.status === 400, `status ${badName.status}`)
+
+    const malformed = await api("POST", "/api/auth/login", { raw: "{not json" })
+    check("malformed JSON is 400", malformed.status === 400, `status ${malformed.status}`)
+
+    const login = await api("POST", "/api/auth/login", {
+      body: { email: `${names.a}@example.com`, password: state.a.password },
+    })
+    check("login is 200 with token", login.status === 200 && typeof login.data?.token === "string", `status ${login.status}`)
+    check("login returns bio and website", login.data?.user?.bio === "" && login.data?.user?.website === "")
+
+    const upper = await api("POST", "/api/auth/login", {
+      body: { email: `${names.a}@EXAMPLE.com`.toUpperCase(), password: state.a.password },
+    })
+    check("login ignores email case", upper.status === 200, `status ${upper.status}`)
+
+    const wrong = await api("POST", "/api/auth/login", {
+      body: { email: `${names.a}@example.com`, password: "wrong-password" },
+    })
+    check("wrong password is 401", wrong.status === 401, `status ${wrong.status}`)
+
+    const unknown = await api("POST", "/api/auth/login", {
+      body: { email: `nobody_${run}@example.com`, password: "whatever1" },
+    })
+    check("unknown email is 401", unknown.status === 401, `status ${unknown.status}`)
+  },
 }
 
 async function cleanup() {

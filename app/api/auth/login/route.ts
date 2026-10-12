@@ -1,52 +1,31 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { connectToDatabase } from '@/lib/mongodb';
 import User from '@/models/User';
-import { generateToken } from '@/middleware/auth';
+import { signToken } from '@/lib/auth';
+import { handleRouteError, jsonError, readJson } from '@/lib/http';
+import { toPrivateUser } from '@/lib/user-response';
 
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   try {
+    const body = await readJson(req);
+    if (!body) return jsonError('Invalid request body', 400);
+
+    const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
+    const password = typeof body.password === 'string' ? body.password : '';
+    if (!email || !password) {
+      return jsonError('Email and password are required', 400);
+    }
+
     await connectToDatabase();
-    
-    const { email, password } = await req.json();
-    
-    // Find user by email
+
     const user = await User.findOne({ email });
-    
-    if (!user) {
-      return NextResponse.json(
-        { error: 'Invalid credentials' },
-        { status: 401 }
-      );
+    if (!user || !(await user.comparePassword(password))) {
+      return jsonError('Invalid credentials', 401);
     }
-    
-    // Check password
-    const isMatch = await user.comparePassword(password);
-    
-    if (!isMatch) {
-      return NextResponse.json(
-        { error: 'Invalid credentials' },
-        { status: 401 }
-      );
-    }
-    
-    // Generate token
-    const token = generateToken(user);
-    
-    return NextResponse.json({
-      token,
-      user: {
-        id: user._id,
-        username: user.username,
-        email: user.email,
-        fullName: user.fullName,
-        avatar: user.avatar,
-      },
-    });
+
+    const token = await signToken({ id: String(user._id), username: user.username, email: user.email });
+    return NextResponse.json({ token, user: toPrivateUser(user) });
   } catch (error) {
-    console.error('Login error:', error);
-    return NextResponse.json(
-      { error: 'Login failed' },
-      { status: 500 }
-    );
+    return handleRouteError(error, 'Login error', 'Login failed');
   }
-} 
+}

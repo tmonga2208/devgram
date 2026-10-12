@@ -1,52 +1,46 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { connectToDatabase } from '@/lib/mongodb';
 import User from '@/models/User';
-import { generateToken } from '@/middleware/auth';
+import { signToken } from '@/lib/auth';
+import { handleRouteError, jsonError, readJson } from '@/lib/http';
+import { toPrivateUser } from '@/lib/user-response';
 
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   try {
-    await connectToDatabase();
-    
-    const { username, email, password, fullName } = await req.json();
-    
-    // Check if user already exists
-    const existingUser = await User.findOne({ 
-      $or: [{ email }, { username }] 
-    });
-    
-    if (existingUser) {
-      return NextResponse.json(
-        { error: 'User already exists' },
-        { status: 400 }
-      );
+    const body = await readJson(req);
+    if (!body) return jsonError('Invalid request body', 400);
+
+    const username = typeof body.username === 'string' ? body.username.trim() : '';
+    const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
+    const password = typeof body.password === 'string' ? body.password : '';
+    const fullName = typeof body.fullName === 'string' ? body.fullName.trim() : '';
+
+    if (!username || !email || !password || !fullName) {
+      return jsonError('Username, email, password and full name are required', 400);
     }
-    
-    // Create new user
-    const user = await User.create({
-      username,
-      email,
-      password,
-      fullName,
-    });
-    
-    // Generate token
-    const token = generateToken(user);
-    
-    return NextResponse.json({
-      token,
-      user: {
-        id: user._id,
-        username: user.username,
-        email: user.email,
-        fullName: user.fullName,
-        avatar: user.avatar,
-      },
-    });
+    if (!/^\w{3,30}$/.test(username)) {
+      return jsonError('Username must be 3-30 letters, numbers or underscores', 400);
+    }
+    if (!/^\S+@\S+\.\S+$/.test(email)) {
+      return jsonError('Please enter a valid email address', 400);
+    }
+    if (password.length < 6) {
+      return jsonError('Password must be at least 6 characters long', 400);
+    }
+
+    await connectToDatabase();
+
+    const existing = await User.findOne({ $or: [{ email }, { username }] }).select('username email').lean();
+    if (existing) {
+      const taken = (existing as { username: string }).username === username ? 'Username' : 'Email';
+      return jsonError(`${taken} is already taken`, 409);
+    }
+
+    const user = await User.create({ username, email, password, fullName });
+    const token = await signToken({ id: String(user._id), username: user.username, email: user.email });
+
+    return NextResponse.json({ token, user: toPrivateUser(user) }, { status: 201 });
   } catch (error) {
-    console.error('Registration error:', error);
-    return NextResponse.json(
-      { error: 'Registration failed' },
-      { status: 500 }
-    );
+    return handleRouteError(error, 'Registration error', 'Registration failed');
   }
-} 
+}
