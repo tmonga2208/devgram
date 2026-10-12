@@ -12,10 +12,12 @@ interface Cached {
 }
 
 declare global {
+  // Only a `var` declaration adds a property to the type of `global`.
+  // eslint-disable-next-line no-var
   var mongoose: Cached;
 }
 
-let cached: Cached = global.mongoose || { conn: null, promise: null };
+const cached: Cached = global.mongoose || { conn: null, promise: null };
 
 if (!global.mongoose) {
   global.mongoose = cached;

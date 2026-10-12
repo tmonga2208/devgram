@@ -1,73 +1,120 @@
 # Devgram
 
-Devgram is a developer-focused social media platform inspired by Instagram. It allows developers to share project screenshots, code snippets, and technical content, fostering a collaborative and inspiring space for the dev community.
+Devgram is a developer-focused social app inspired by Instagram. Developers share screenshots, videos and code snippets, follow each other, comment and message.
 
 ## Features
 
-- Developer-first feed with posts including images and code
-- Like, comment, and save functionality
-- User profiles with bio, skills, and GitHub link
-- Explore page with tag-based and user-based search
-- Secure authentication system
-- Admin dashboard for moderation and analytics
+- Feed of image, video and syntax-highlighted code posts
+- Like, comment and save posts; saves are private to each user
+- User profiles with avatar, bio and website
+- Follow and unfollow
+- Direct messages
+- Notifications for likes, comments, follows, messages and @mentions
+- Search across users and posts
+- Explore grid and similar-post suggestions
+- Account, notification and privacy settings
+- Email and password authentication
 
-## Tech Stack
+## Tech stack
 
-- **Frontend:** Next.js, Tailwind CSS, TypeScript, Shadcn UI
-- **Backend:** Node.js, Express.js, MongoDB (Mongoose)
-- **Authentication:** Clerk or Firebase Auth
-- **Image Storage:** Cloudinary
-- **Deployment:** Vercel (frontend), Render/Heroku (backend)
+- Next.js 15 (App Router) with API route handlers
+- React 19, TypeScript, Tailwind CSS 4, shadcn/ui
+- MongoDB with Mongoose
+- JWT authentication with `jose`; passwords hashed with `bcryptjs`
 
-## Getting Started
-
-### 1. Clone the repository
+## Getting started
 
 ```bash
-git clone https://github.com/your-username/devgram.git
+git clone https://github.com/tmonga2208/devgram.git
 cd devgram
-```
-
-# Install dependencies
-```bash
 npm install
 ```
 
-# Configure environment variables
-Create a .env.local file in the root directory with the following:
+Create `.env.local` in the project root:
+
 ```bash
-# MongoDB
 MONGODB_URI=your_mongodb_connection_string
-# Cloudinary
-CLOUDINARY_CLOUD_NAME=your_cloud_name
-CLOUDINARY_API_KEY=your_api_key
-CLOUDINARY_API_SECRET=your_api_secret
+JWT_SECRET=a_long_random_string
 ```
-# Run the development server
+
+`JWT_SECRET` signs login tokens. Generate one with `openssl rand -hex 32`.
+
+Run the development server:
+
 ```bash
 npm run dev
 ```
-# Folder Structure
-```csharp
+
+Open http://localhost:3000 and register an account.
+
+## Scripts
+
+| Command | What it does |
+| --- | --- |
+| `npm run dev` | start the dev server |
+| `npm run build` | production build |
+| `npm run lint` | ESLint |
+| `npm run typecheck` | TypeScript, no emit |
+| `npm run smoke` | end-to-end API test against the running dev server |
+
+`npm run smoke` registers two `smoke_...` users in the database from `.env.local`, exercises every endpoint, and deletes everything it created. It targets `http://localhost:3000`; if the dev server is on another port, set `SMOKE_BASE_URL`, for example `SMOKE_BASE_URL=http://localhost:3001 npm run smoke`.
+
+## Folder structure
+
+```
 devgram/
-├── components/       # Reusable UI components
-├── lib/              # Database, auth, and utility functions
-├── models/           # Mongoose models
-├── pages/            # Next.js routes
-├── public/           # Static files
-├── styles/           # Global CSS and Tailwind config
-└── utils/            # Helper functions
-```
-# API Overview
-```
-GET /api/posts Fetch all posts
-POST /api/posts Create a new post
-GET /api/users/:id Fetch user profile
-POST /api/auth/register Register new user
-POST /api/auth/login User login
+├── app/           # Pages and API route handlers (app/api)
+├── components/    # Feature components and shadcn/ui primitives (components/ui)
+├── contexts/      # Auth and posts React contexts
+├── lib/           # Auth, database connection and server helpers
+├── models/        # Mongoose models
+├── public/        # Static files
+├── scripts/       # Smoke test
+└── middleware.ts  # Redirects signed-out visitors away from protected pages
 ```
 
-# License
-This project is licensed under the MIT License © tmonga2208.
+## API overview
 
-## Devgram is built for developers who want to share and explore real tech work, not just aesthetics
+Routes marked with a lock need an `Authorization: Bearer <token>` header.
+
+```
+POST   /api/auth/register            Register, returns a token
+POST   /api/auth/login               Log in, returns a token
+
+GET    /api/posts                    All posts, newest first
+POST   /api/posts                 🔒 Create a post
+GET    /api/posts/:id                One post
+DELETE /api/posts/:id             🔒 Delete your post
+POST   /api/posts/:id/like        🔒 Toggle like
+POST   /api/posts/:id/save        🔒 Toggle save
+GET    /api/posts/:id/comments       Comments on a post
+POST   /api/posts/:id/comments    🔒 Add a comment
+GET    /api/posts/similar/:id        Similar posts
+
+GET    /api/users/:username          Public profile
+POST   /api/users/:username/follow 🔒 Toggle follow
+GET    /api/users/profile         🔒 Your account and settings
+PATCH  /api/users/profile         🔒 Update profile, email, password, settings
+
+GET    /api/messages              🔒 Your conversations
+POST   /api/messages              🔒 Send a message
+GET    /api/messages/:username    🔒 Messages with a user
+
+GET    /api/notifications         🔒 Your notifications
+PATCH  /api/notifications         🔒 Mark notifications read
+
+GET    /api/search?q=&type=          Search users and posts
+GET    /api/health                   Database connectivity check
+```
+
+## Not yet built
+
+- Image and avatar upload (posts and avatars take a URL today)
+- Tags and tag-based explore
+- Skills and GitHub link on profiles
+- Admin dashboard for moderation and analytics
+- Enforcing privacy and notification preferences (they are saved, not applied)
+
+## License
+
+MIT © tmonga2208

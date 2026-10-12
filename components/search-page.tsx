@@ -140,6 +140,7 @@ export function SearchPage() {
                               <p className="line-clamp-3">{post.caption}</p>
                               {post.image && (
                                 <div className="mt-3 aspect-video overflow-hidden rounded-md">
+                                  {/* eslint-disable-next-line @next/next/no-img-element -- user-supplied URL, any host */}
                                   <img
                                     src={post.image}
                                     alt="Post image"
@@ -228,6 +229,7 @@ export function SearchPage() {
                         <p className="line-clamp-3">{post.caption}</p>
                         {post.image && (
                           <div className="mt-3 aspect-video overflow-hidden rounded-md">
+                            {/* eslint-disable-next-line @next/next/no-img-element -- user-supplied URL, any host */}
                             <img
                               src={post.image}
                               alt="Post image"
