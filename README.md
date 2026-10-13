@@ -14,6 +14,7 @@ Devgram is a developer-focused social app inspired by Instagram. Developers shar
 - Explore grid and similar-post suggestions
 - Account, notification and privacy settings
 - Email and password authentication
+- Installable as an app (PWA), with an offline page
 
 ## Tech stack
 
@@ -59,6 +60,14 @@ Open http://localhost:3000 and register an account.
 
 `npm run smoke` registers two `smoke_...` users in the database from `.env.local`, exercises every endpoint, and deletes everything it created. It targets `http://localhost:3000`; if the dev server is on another port, set `SMOKE_BASE_URL`, for example `SMOKE_BASE_URL=http://localhost:3001 npm run smoke`.
 
+## Installable app (PWA)
+
+DevGram can be installed from the browser: "Install" in Chrome and Edge, "Add to Home Screen" on iOS and Android.
+
+- `app/manifest.ts` describes the app. The icons are in `public/icons/` and `app/apple-icon.png`.
+- `public/sw.js` is the service worker. It is registered in production builds only, so `npm run dev` never runs behind a cache. It caches build assets and icons, and shows `/offline` when a page cannot be loaded. It never caches API responses.
+- The PNG icons are rendered from `app/icon.svg` and `public/icons/icon-maskable.svg`. To change the logo, edit those two files and render them again, for example `rsvg-convert -w 512 -h 512 app/icon.svg -o public/icons/icon-512.png`.
+
 ## Folder structure
 
 ```
@@ -68,7 +77,7 @@ devgram/
 ├── contexts/      # Auth and posts React contexts
 ├── lib/           # Auth, database connection and server helpers
 ├── models/        # Mongoose models
-├── public/        # Static files
+├── public/        # Static files, app icons and the service worker
 ├── scripts/       # Smoke test
 └── middleware.ts  # Redirects signed-out visitors away from protected pages
 ```
@@ -114,6 +123,7 @@ GET    /api/health                   Database connectivity check
 - Skills and GitHub link on profiles
 - Admin dashboard for moderation and analytics
 - Enforcing privacy and notification preferences (they are saved, not applied)
+- Push notifications and posting while offline
 
 ## License
 

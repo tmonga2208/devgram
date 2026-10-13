@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Full-bleed background with the mark inside the central safe zone, for
+       platforms that crop icons to their own shape (Android, iOS). -->
+  <rect width="512" height="512" fill="#18181b"/>
+  <g transform="translate(256 256) scale(0.75) translate(-256 -256)" fill="none" stroke="#ffffff" stroke-width="36" stroke-linecap="round" stroke-linejoin="round">
+    <polyline points="176,176 96,256 176,336"/>
+    <polyline points="336,176 416,256 336,336"/>
+    <line x1="288" y1="152" x2="224" y2="360"/>
+  </g>
+</svg>

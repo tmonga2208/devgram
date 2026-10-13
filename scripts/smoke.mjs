@@ -40,6 +40,18 @@ async function api(method, path, { token, body, raw } = {}) {
   return { status: res.status, data, text }
 }
 
+async function fetchRaw(path) {
+  const res = await fetch(`${BASE}${path}`, { redirect: "manual" })
+  const buffer = Buffer.from(await res.arrayBuffer())
+  return { status: res.status, headers: res.headers, buffer, text: buffer.toString("utf8") }
+}
+
+// Width and height from a PNG's header, or null when the bytes are not a PNG.
+function pngSize(buffer) {
+  if (buffer.length < 24 || buffer.subarray(0, 8).toString("hex") !== "89504e470d0a1a0a") return null
+  return { width: buffer.readUInt32BE(16), height: buffer.readUInt32BE(20) }
+}
+
 async function ensureUsers() {
   if (state.a) return
   for (const key of ["a", "b"]) {
@@ -474,6 +486,63 @@ const sections = {
     check("search finds the post by comment text", byComment.data?.posts?.some?.((p) => p._id === postId))
     const meta = await api("GET", `/api/search?q=${encodeURIComponent("(.*")}`)
     check("regex metacharacters are 200 with no matches", meta.status === 200 && meta.data?.users?.length === 0, `status ${meta.status}`)
+  },
+  async pwa() {
+    const manifestRes = await fetchRaw("/manifest.webmanifest")
+    let manifest = null
+    try {
+      manifest = JSON.parse(manifestRes.text)
+    } catch {}
+    check("manifest is served", manifestRes.status === 200 && manifest !== null, `status ${manifestRes.status}`)
+    check("manifest names the app", manifest?.name === "DevGram" && manifest?.short_name === "DevGram", `${manifest?.name} / ${manifest?.short_name}`)
+    check("manifest opens the app standalone at /", manifest?.display === "standalone" && manifest?.start_url === "/", `${manifest?.display} ${manifest?.start_url}`)
+    check(
+      "manifest sets theme and background colours",
+      /^#[0-9a-f]{6}$/i.test(manifest?.theme_color || "") && /^#[0-9a-f]{6}$/i.test(manifest?.background_color || ""),
+      `${manifest?.theme_color} ${manifest?.background_color}`,
+    )
+    const icons = Array.isArray(manifest?.icons) ? manifest.icons : []
+    check(
+      "manifest lists 192px and 512px icons",
+      icons.some((icon) => icon.sizes === "192x192") && icons.some((icon) => icon.sizes === "512x512" && icon.purpose !== "maskable"),
+      icons.map((icon) => icon.sizes).join(","),
+    )
+    check("manifest lists a maskable icon", icons.some((icon) => icon.purpose === "maskable"))
+    for (const icon of icons) {
+      const res = await fetchRaw(icon.src)
+      const size = pngSize(res.buffer)
+      check(
+        `icon ${icon.src} is a PNG of its declared size`,
+        res.status === 200 && size !== null && `${size.width}x${size.height}` === icon.sizes,
+        `status ${res.status}, actual ${size ? `${size.width}x${size.height}` : "not a PNG"}, declared ${icon.sizes}`,
+      )
+    }
+
+    const home = await fetchRaw("/")
+    check("pages link the manifest", /<link[^>]+rel="manifest"[^>]+href="\/manifest\.webmanifest"/.test(home.text))
+    check("pages set a theme colour", /<meta[^>]+name="theme-color"/.test(home.text))
+    const appleHref = home.text.match(/<link[^>]+rel="apple-touch-icon"[^>]+href="([^"]+)"/)?.[1]
+    const apple = appleHref ? await fetchRaw(appleHref.replace(/&amp;/g, "&")) : null
+    const appleSize = apple ? pngSize(apple.buffer) : null
+    check(
+      "pages link a 180px Apple touch icon",
+      apple?.status === 200 && appleSize?.width === 180 && appleSize?.height === 180,
+      `href ${appleHref}, size ${appleSize ? `${appleSize.width}x${appleSize.height}` : "n/a"}`,
+    )
+
+    const sw = await fetchRaw("/sw.js")
+    check(
+      "service worker script is served as JavaScript",
+      sw.status === 200 && /javascript/.test(sw.headers.get("content-type") || ""),
+      `status ${sw.status}, type ${sw.headers.get("content-type")}`,
+    )
+    check(
+      "service worker script is not cached by the browser",
+      /no-cache/.test(sw.headers.get("cache-control") || ""),
+      `cache-control ${sw.headers.get("cache-control")}`,
+    )
+    const offline = await fetchRaw("/offline")
+    check("offline page is served", offline.status === 200 && /offline/i.test(offline.text), `status ${offline.status}`)
   },
 }
 
