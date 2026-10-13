@@ -90,6 +90,19 @@ const sections = {
     })
     check("invalid username is 400", badName.status === 400, `status ${badName.status}`)
 
+    const longEmail = await api("POST", "/api/auth/register", {
+      body: { username: names.a, email: `${"e".repeat(250)}@example.com`, password: "smoke-pass-1", fullName: "Long" },
+    })
+    check("email over 254 characters is 400", longEmail.status === 400, `status ${longEmail.status}`)
+    const longName = await api("POST", "/api/auth/register", {
+      body: { username: names.a, email: `long_${names.a}@example.com`, password: "smoke-pass-1", fullName: "n".repeat(101) },
+    })
+    check("full name over 100 characters is 400", longName.status === 400, `status ${longName.status}`)
+    const longPassword = await api("POST", "/api/auth/register", {
+      body: { username: names.a, email: `long_${names.a}@example.com`, password: "p".repeat(129), fullName: "Long" },
+    })
+    check("password over 128 characters is 400", longPassword.status === 400, `status ${longPassword.status}`)
+
     const malformed = await api("POST", "/api/auth/login", { raw: "{not json" })
     check("malformed JSON is 400", malformed.status === 400, `status ${malformed.status}`)
 
@@ -118,6 +131,11 @@ const sections = {
     await ensureUsers()
     const { a, b } = state
     const missingId = "0123456789abcdef01234567"
+    const sameLanguage = await api("POST", "/api/posts", {
+      token: b.token,
+      body: { caption: `same language ${run}`, code: "y", language: "javascript" },
+    })
+    const sameLanguageId = sameLanguage.data?._id
 
     const noToken = await api("POST", "/api/posts", { body: { caption: "x" } })
     check("create without token is 401", noToken.status === 401, `status ${noToken.status}`)
@@ -132,6 +150,28 @@ const sections = {
       body: { caption: "bad", image: "javascript:alert(1)" },
     })
     check("javascript: image url is 400", jsUrl.status === 400, `status ${jsUrl.status}`)
+    const longCaption = await api("POST", "/api/posts", { token: a.token, body: { caption: "c".repeat(2201) } })
+    check("caption over 2200 characters is 400", longCaption.status === 400, `status ${longCaption.status}`)
+    const longCode = await api("POST", "/api/posts", {
+      token: a.token,
+      body: { caption: "long code", code: "x".repeat(20001), language: "javascript" },
+    })
+    check("code over 20000 characters is 400", longCode.status === 400, `status ${longCode.status}`)
+    const longLanguage = await api("POST", "/api/posts", {
+      token: a.token,
+      body: { caption: "long language", code: "x", language: "l".repeat(31) },
+    })
+    check("language over 30 characters is 400", longLanguage.status === 400, `status ${longLanguage.status}`)
+    const longVideo = await api("POST", "/api/posts", {
+      token: a.token,
+      body: { caption: "long video", video: `https://example.com/${"v".repeat(2048)}` },
+    })
+    check("video URL over 2048 characters is 400", longVideo.status === 400, `status ${longVideo.status}`)
+    const longImage = await api("POST", "/api/posts", {
+      token: a.token,
+      body: { caption: "long image", image: `https://example.com/${"i".repeat(2048)}` },
+    })
+    check("image URL over 2048 characters is 400", longImage.status === 400, `status ${longImage.status}`)
 
     const image = await api("POST", "/api/posts", {
       token: a.token,
@@ -184,6 +224,48 @@ const sections = {
     check("save without token is 401", saveAnon.status === 401, `status ${saveAnon.status}`)
     const save = await api("POST", `/api/posts/${postId}/save`, { token: b.token })
     check("save adds only the caller", save.status === 200 && save.data?.savedBy?.includes(names.b) && !save.data?.savedBy?.includes(names.a), save.text.slice(0, 120))
+    const savedSeenByOwner = await api("GET", `/api/posts/${postId}`, { token: b.token })
+    check(
+      "the saver sees their own save",
+      savedSeenByOwner.data?.savedBy?.length === 1 && savedSeenByOwner.data.savedBy[0] === names.b,
+      JSON.stringify(savedSeenByOwner.data?.savedBy),
+    )
+    const savedSeenAnon = await api("GET", `/api/posts/${postId}`)
+    check(
+      "anonymous callers cannot see who saved a post",
+      Array.isArray(savedSeenAnon.data?.savedBy) && savedSeenAnon.data.savedBy.length === 0,
+      JSON.stringify(savedSeenAnon.data?.savedBy),
+    )
+    const savedSeenByOther = await api("GET", `/api/posts/${postId}`, { token: a.token })
+    check(
+      "other users cannot see who saved a post",
+      Array.isArray(savedSeenByOther.data?.savedBy) && savedSeenByOther.data.savedBy.length === 0,
+      JSON.stringify(savedSeenByOther.data?.savedBy),
+    )
+    const feedAnon = await api("GET", "/api/posts")
+    check(
+      "the feed hides saves from anonymous callers",
+      Array.isArray(feedAnon.data) && feedAnon.data.every((p) => Array.isArray(p.savedBy) && p.savedBy.length === 0),
+    )
+    const feedOwner = await api("GET", "/api/posts", { token: b.token })
+    check("the feed shows the caller their own save", feedOwner.data?.find?.((p) => p._id === postId)?.savedBy?.[0] === names.b)
+    const likeByOther = await api("POST", `/api/posts/${postId}/like`, { token: a.token })
+    check(
+      "a like response does not leak another user's save",
+      Array.isArray(likeByOther.data?.savedBy) && likeByOther.data.savedBy.length === 0,
+      JSON.stringify(likeByOther.data?.savedBy),
+    )
+    await api("POST", `/api/posts/${postId}/like`, { token: a.token })
+    const searchAnon = await api("GET", `/api/search?q=${encodeURIComponent(`image post ${run}`)}&type=posts`)
+    check(
+      "search hides saves from anonymous callers",
+      searchAnon.data?.posts?.some?.((p) => p._id === postId) && searchAnon.data.posts.every((p) => Array.isArray(p.savedBy) && p.savedBy.length === 0),
+    )
+    const similarAnon = await api("GET", `/api/posts/similar/${codeId}`)
+    check(
+      "similar posts hide saves from anonymous callers",
+      similarAnon.data?.some?.((p) => p._id === postId) && similarAnon.data.every((p) => Array.isArray(p.savedBy) && p.savedBy.length === 0),
+    )
     const unsave = await api("POST", `/api/posts/${postId}/save`, { token: b.token })
     check("second save removes the caller", unsave.status === 200 && !unsave.data?.savedBy?.includes(names.b))
 
@@ -205,6 +287,12 @@ const sections = {
     check("similar is 200 with an array", similar.status === 200 && Array.isArray(similar.data), `status ${similar.status}`)
     check("similar excludes the post itself", !similar.data?.some?.((p) => p._id === codeId))
     check("similar includes the author's other post", similar.data?.some?.((p) => p._id === postId))
+    const similarIds = Array.isArray(similar.data) ? similar.data.map((p) => p._id) : []
+    check(
+      "similar lists same-language posts before same-author posts",
+      similarIds.includes(sameLanguageId) && similarIds.includes(postId) && similarIds.indexOf(sameLanguageId) < similarIds.indexOf(postId),
+      `order ${similarIds.map((id) => String(id).slice(-4)).join(",")} wanted ${String(sameLanguageId).slice(-4)} before ${String(postId).slice(-4)}`,
+    )
 
     const deleteOther = await api("DELETE", `/api/posts/${postId}`, { token: b.token })
     check("delete by non-author is 403", deleteOther.status === 403, `status ${deleteOther.status}`)
@@ -233,6 +321,11 @@ const sections = {
     const me = await api("GET", "/api/users/profile", { token: a.token })
     check("own profile is 200 with email and settings", me.status === 200 && me.data?.email === `${names.a}@example.com` && me.data?.privacySettings?.isPrivate === false, me.text.slice(0, 120))
 
+    const ownPost = await api("POST", "/api/posts", { token: a.token, body: { caption: `avatar check ${run}`, code: "z", language: "go" } })
+    const ownPostId = ownPost.data?._id
+    await api("POST", `/api/posts/${ownPostId}/comments`, { token: a.token, body: { text: "my own comment" } })
+    await api("POST", `/api/posts/${ownPostId}/comments`, { token: b.token, body: { text: "someone else" } })
+
     const edit = await api("PATCH", "/api/users/profile", {
       token: a.token,
       body: { fullName: "Smoke Edited", bio: "hello", website: "https://example.com", avatar: "https://example.com/me.png" },
@@ -242,9 +335,19 @@ const sections = {
       edit.status === 200 && edit.data?.fullName === "Smoke Edited" && edit.data?.bio === "hello" && edit.data?.website === "https://example.com" && edit.data?.avatar === "https://example.com/me.png",
       `status ${edit.status} ${edit.text.slice(0, 120)}`,
     )
+    const afterAvatar = await api("GET", `/api/posts/${ownPostId}`)
+    check("a new avatar reaches the user's existing post", afterAvatar.data?.author?.avatar === "https://example.com/me.png", `author avatar ${afterAvatar.data?.author?.avatar}`)
+    check("a new avatar reaches the user's existing comments", afterAvatar.data?.comments?.[0]?.avatar === "https://example.com/me.png", `comment avatar ${afterAvatar.data?.comments?.[0]?.avatar}`)
+    check("a new avatar leaves other users' comments alone", afterAvatar.data?.comments?.[1]?.avatar === "/placeholder.svg", `other comment avatar ${afterAvatar.data?.comments?.[1]?.avatar}`)
     const clear = await api("PATCH", "/api/users/profile", { token: a.token, body: { bio: "", website: "", avatar: "" } })
     check("bio and website can be cleared", clear.data?.bio === "" && clear.data?.website === "")
     check("clearing avatar restores the placeholder", clear.data?.avatar === "/placeholder.svg")
+    const afterClear = await api("GET", `/api/posts/${ownPostId}`)
+    check(
+      "clearing the avatar reaches existing posts and comments",
+      afterClear.data?.author?.avatar === "/placeholder.svg" && afterClear.data?.comments?.[0]?.avatar === "/placeholder.svg",
+      `author ${afterClear.data?.author?.avatar} comment ${afterClear.data?.comments?.[0]?.avatar}`,
+    )
     const jsSite = await api("PATCH", "/api/users/profile", { token: a.token, body: { website: "javascript:alert(1)" } })
     check("javascript: website is 400", jsSite.status === 400, `status ${jsSite.status}`)
     const jsAvatar = await api("PATCH", "/api/users/profile", { token: a.token, body: { avatar: "javascript:alert(1)" } })
@@ -293,6 +396,17 @@ const sections = {
     check("follower's following count is 1", bProfile.data?.following === 1)
     const unfollow = await api("POST", `/api/users/${names.a}/follow`, { token: b.token })
     check("second follow unfollows", unfollow.data?.following === false && unfollow.data?.followers === 0 && unfollow.data?.followingCount === 0, unfollow.text.slice(0, 120))
+
+    const longWebsite = await api("PATCH", "/api/users/profile", { token: a.token, body: { website: `https://example.com/${"w".repeat(2048)}` } })
+    check("website over 2048 characters is 400", longWebsite.status === 400, `status ${longWebsite.status}`)
+    const longAvatar = await api("PATCH", "/api/users/profile", { token: a.token, body: { avatar: `https://example.com/${"a".repeat(2048)}` } })
+    check("avatar URL over 2048 characters is 400", longAvatar.status === 400, `status ${longAvatar.status}`)
+    const longFullName = await api("PATCH", "/api/users/profile", { token: a.token, body: { fullName: "n".repeat(101) } })
+    check("profile full name over 100 characters is 400", longFullName.status === 400, `status ${longFullName.status}`)
+    const longNewEmail = await api("PATCH", "/api/users/profile", { token: a.token, body: { email: `${"e".repeat(250)}@example.com` } })
+    check("profile email over 254 characters is 400", longNewEmail.status === 400, `status ${longNewEmail.status}`)
+    const longNewPassword = await api("PATCH", "/api/users/profile", { token: a.token, body: { currentPassword: a.password, newPassword: "p".repeat(129) } })
+    check("new password over 128 characters is 400", longNewPassword.status === 400, `status ${longNewPassword.status}`)
   },
   async social() {
     await ensureUsers()

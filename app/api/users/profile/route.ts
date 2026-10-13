@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server"
 import { connectToDatabase } from "@/lib/mongodb"
 import User from "@/models/User"
+import Post from "@/models/Post"
 import { requireAuth } from "@/lib/auth"
-import { handleRouteError, isHttpUrl, jsonError, readJson } from "@/lib/http"
+import { LIMITS, handleRouteError, isHttpUrl, jsonError, readJson } from "@/lib/http"
 import {
   NOTIFICATION_DEFAULTS,
   PRIVACY_DEFAULTS,
@@ -39,6 +40,8 @@ export async function PATCH(req: Request) {
     const user = await User.findOne({ username: auth.username })
     if (!user) return jsonError("Authentication required", 401)
 
+    const previousAvatar = user.avatar
+
     if (data.username !== undefined && data.username !== user.username) {
       return jsonError("Username cannot be changed", 400)
     }
@@ -47,18 +50,22 @@ export async function PATCH(req: Request) {
       if (typeof data.fullName !== "string" || !data.fullName.trim()) {
         return jsonError("Full name is required", 400)
       }
+      if (data.fullName.trim().length > LIMITS.fullName) {
+        return jsonError(`Full name must be ${LIMITS.fullName} characters or fewer`, 400)
+      }
       user.fullName = data.fullName.trim()
     }
 
     if (data.bio !== undefined) {
       if (typeof data.bio !== "string") return jsonError("Bio must be text", 400)
-      if (data.bio.length > 500) return jsonError("Bio must be 500 characters or fewer", 400)
+      if (data.bio.length > LIMITS.bio) return jsonError(`Bio must be ${LIMITS.bio} characters or fewer`, 400)
       user.bio = data.bio
     }
 
     if (data.website !== undefined) {
       if (typeof data.website !== "string") return jsonError("Website must be text", 400)
       const website = data.website.trim()
+      if (website.length > LIMITS.url) return jsonError("Website URL is too long", 400)
       if (website && !isHttpUrl(website)) return jsonError("Website must be an http(s) URL", 400)
       user.website = website
     }
@@ -66,6 +73,7 @@ export async function PATCH(req: Request) {
     if (data.avatar !== undefined) {
       if (typeof data.avatar !== "string") return jsonError("Avatar must be text", 400)
       const avatar = data.avatar.trim()
+      if (avatar.length > LIMITS.url) return jsonError("Avatar URL is too long", 400)
       if (avatar && avatar !== "/placeholder.svg" && !isHttpUrl(avatar)) {
         return jsonError("Avatar must be an http(s) URL", 400)
       }
@@ -75,6 +83,7 @@ export async function PATCH(req: Request) {
     if (data.email !== undefined) {
       if (typeof data.email !== "string") return jsonError("Email must be text", 400)
       const email = data.email.trim().toLowerCase()
+      if (email.length > LIMITS.email) return jsonError(`Email must be ${LIMITS.email} characters or fewer`, 400)
       if (!/^\S+@\S+\.\S+$/.test(email)) return jsonError("Please enter a valid email address", 400)
       if (email !== user.email) {
         if (await User.exists({ email })) return jsonError("Email is already taken", 409)
@@ -91,6 +100,9 @@ export async function PATCH(req: Request) {
       }
       if (data.newPassword.length < 6) {
         return jsonError("Password must be at least 6 characters long", 400)
+      }
+      if (data.newPassword.length > LIMITS.password) {
+        return jsonError(`Password must be ${LIMITS.password} characters or fewer`, 400)
       }
       // The pre-save hook on the User model hashes this.
       user.password = data.newPassword
@@ -111,6 +123,22 @@ export async function PATCH(req: Request) {
     }
 
     await user.save()
+
+    // Posts and comments carry their own copy of the author's avatar.
+    if (user.avatar !== previousAvatar) {
+      await Promise.all([
+        Post.updateMany(
+          { "author.username": user.username },
+          { $set: { "author.avatar": user.avatar } },
+          { timestamps: false }
+        ),
+        Post.updateMany(
+          { "comments.username": user.username },
+          { $set: { "comments.$[own].avatar": user.avatar } },
+          { arrayFilters: [{ "own.username": user.username }], timestamps: false }
+        ),
+      ])
+    }
 
     return NextResponse.json(toPrivateUser(user))
   } catch (error) {

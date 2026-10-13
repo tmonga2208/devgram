@@ -3,7 +3,7 @@ import { connectToDatabase } from "@/lib/mongodb"
 import Post from "@/models/Post"
 import User from "@/models/User"
 import { requireAuth } from "@/lib/auth"
-import { handleRouteError, isValidId, jsonError, readJson } from "@/lib/http"
+import { LIMITS, handleRouteError, isValidId, jsonError, readJson } from "@/lib/http"
 import { createNotification, notifyMentions } from "@/lib/notifications"
 
 type Context = { params: Promise<{ id: string }> }
@@ -20,7 +20,7 @@ export async function POST(req: Request, { params }: Context) {
     const body = await readJson(req)
     const text = typeof body?.text === "string" ? body.text.trim() : ""
     if (!text) return jsonError("Comment text is required", 400)
-    if (text.length > 1000) return jsonError("Comment must be 1000 characters or fewer", 400)
+    if (text.length > LIMITS.comment) return jsonError(`Comment must be ${LIMITS.comment} characters or fewer`, 400)
 
     await connectToDatabase()
 

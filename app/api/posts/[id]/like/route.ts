@@ -4,6 +4,7 @@ import Post from '@/models/Post';
 import { requireAuth } from '@/lib/auth';
 import { handleRouteError, isValidId, jsonError } from '@/lib/http';
 import { createNotification } from '@/lib/notifications';
+import { toPublicPost } from '@/lib/post-response';
 
 // Toggle the caller's like. Each branch is one atomic update, so racing
 // requests cannot double-count.
@@ -24,7 +25,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     );
     if (liked) {
       await createNotification(auth.username, liked.author.username, 'like', 'liked your post', String(liked._id));
-      return NextResponse.json(liked);
+      return NextResponse.json(toPublicPost(liked, auth));
     }
 
     const unliked = await Post.findOneAndUpdate(
@@ -32,7 +33,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       { $pull: { likedBy: auth.username }, $inc: { likes: -1 } },
       { new: true }
     );
-    if (unliked) return NextResponse.json(unliked);
+    if (unliked) return NextResponse.json(toPublicPost(unliked, auth));
 
     return jsonError('Post not found', 404);
   } catch (error) {

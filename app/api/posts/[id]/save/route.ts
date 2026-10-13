@@ -3,6 +3,7 @@ import { connectToDatabase } from '@/lib/mongodb';
 import Post from '@/models/Post';
 import { requireAuth } from '@/lib/auth';
 import { handleRouteError, isValidId, jsonError } from '@/lib/http';
+import { toPublicPost } from '@/lib/post-response';
 
 // Toggle the caller's save.
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -20,14 +21,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       { $addToSet: { savedBy: auth.username } },
       { new: true }
     );
-    if (saved) return NextResponse.json(saved);
+    if (saved) return NextResponse.json(toPublicPost(saved, auth));
 
     const unsaved = await Post.findOneAndUpdate(
       { _id: id, savedBy: auth.username },
       { $pull: { savedBy: auth.username } },
       { new: true }
     );
-    if (unsaved) return NextResponse.json(unsaved);
+    if (unsaved) return NextResponse.json(toPublicPost(unsaved, auth));
 
     return jsonError('Post not found', 404);
   } catch (error) {

@@ -1,29 +1,40 @@
 import { NextResponse } from "next/server"
 import { connectToDatabase } from "@/lib/mongodb"
 import Post from "@/models/Post"
+import { getAuthUser } from "@/lib/auth"
 import { handleRouteError, isValidId, jsonError } from "@/lib/http"
+import { toPublicPost } from "@/lib/post-response"
 
-// Posts in the same language, or by the same author.
-export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+const SIMILAR_LIMIT = 6
+
+// Posts in the same language come first. If they do not fill the list, the
+// author's other posts make up the rest.
+export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params
     if (!isValidId(id)) return jsonError("Post not found", 404)
 
+    const viewer = await getAuthUser(req)
     await connectToDatabase()
 
     const current = await Post.findById(id).select("author language").lean()
     if (!current) return jsonError("Post not found", 404)
 
     const { author, language } = current as { author: { username: string }; language?: string }
-    const matches: Array<Record<string, string>> = [{ "author.username": author.username }]
-    if (language) matches.push({ language })
 
-    const similarPosts = await Post.find({ _id: { $ne: id }, $or: matches })
-      .sort({ createdAt: -1 })
-      .limit(6)
-      .lean()
+    const sameLanguage = language
+      ? await Post.find({ _id: { $ne: id }, language }).sort({ createdAt: -1 }).limit(SIMILAR_LIMIT).lean()
+      : []
+    const taken = [id, ...sameLanguage.map((post) => String(post._id))]
+    const sameAuthor =
+      sameLanguage.length < SIMILAR_LIMIT
+        ? await Post.find({ _id: { $nin: taken }, "author.username": author.username })
+            .sort({ createdAt: -1 })
+            .limit(SIMILAR_LIMIT - sameLanguage.length)
+            .lean()
+        : []
 
-    return NextResponse.json(similarPosts)
+    return NextResponse.json([...sameLanguage, ...sameAuthor].map((post) => toPublicPost(post, viewer)))
   } catch (error) {
     return handleRouteError(error, "Similar posts error", "Failed to fetch similar posts")
   }

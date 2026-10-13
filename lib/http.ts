@@ -1,6 +1,21 @@
 import { NextResponse } from "next/server"
 import mongoose from "mongoose"
 
+// Upper bounds for user-supplied text. Check them before running a regex
+// over the value or writing it to the database.
+export const LIMITS = {
+  email: 254,
+  password: 128,
+  fullName: 100,
+  bio: 500,
+  url: 2048,
+  caption: 2200,
+  code: 20000,
+  language: 30,
+  comment: 1000,
+  message: 2000,
+} as const
+
 export function jsonError(message: string, status: number) {
   return NextResponse.json({ error: message }, { status })
 }

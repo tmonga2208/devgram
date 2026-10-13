@@ -24,7 +24,7 @@ function messageOf(error: unknown, fallback: string) {
 }
 
 export function PostDetail({ id }: PostDetailProps) {
-  const { user } = useAuth()
+  const { user, authFetch, loading: authLoading } = useAuth()
   const { likePost, savePost, addComment } = usePosts()
   const router = useRouter()
   const [post, setPost] = useState<PostType | null>(null)
@@ -34,12 +34,14 @@ export function PostDetail({ id }: PostDetailProps) {
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   useEffect(() => {
+    // Wait for the stored session, so the response includes the viewer's own save.
+    if (authLoading) return
     let cancelled = false
 
     const load = async () => {
       setStatus("loading")
       try {
-        const response = await fetch(`/api/posts/${id}`)
+        const response = await authFetch(`/api/posts/${id}`)
         if (cancelled) return
         if (response.status === 404) {
           setStatus("missing")
@@ -65,7 +67,7 @@ export function PostDetail({ id }: PostDetailProps) {
     return () => {
       cancelled = true
     }
-  }, [id])
+  }, [id, authFetch, authLoading])
 
   if (status === "loading") {
     return (

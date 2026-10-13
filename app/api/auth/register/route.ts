@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { connectToDatabase } from '@/lib/mongodb';
 import User from '@/models/User';
 import { signToken } from '@/lib/auth';
-import { handleRouteError, jsonError, readJson } from '@/lib/http';
+import { LIMITS, handleRouteError, jsonError, readJson } from '@/lib/http';
 import { toPrivateUser } from '@/lib/user-response';
 
 export async function POST(req: Request) {
@@ -17,6 +17,15 @@ export async function POST(req: Request) {
 
     if (!username || !email || !password || !fullName) {
       return jsonError('Username, email, password and full name are required', 400);
+    }
+    if (email.length > LIMITS.email) {
+      return jsonError(`Email must be ${LIMITS.email} characters or fewer`, 400);
+    }
+    if (fullName.length > LIMITS.fullName) {
+      return jsonError(`Full name must be ${LIMITS.fullName} characters or fewer`, 400);
+    }
+    if (password.length > LIMITS.password) {
+      return jsonError(`Password must be ${LIMITS.password} characters or fewer`, 400);
     }
     if (!/^\w{3,30}$/.test(username)) {
       return jsonError('Username must be 3-30 letters, numbers or underscores', 400);

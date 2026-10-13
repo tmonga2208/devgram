@@ -2,16 +2,18 @@ import { NextResponse } from 'next/server';
 import { connectToDatabase } from '@/lib/mongodb';
 import Post from '@/models/Post';
 import User from '@/models/User';
-import { requireAuth } from '@/lib/auth';
-import { handleRouteError, isHttpUrl, jsonError, readJson } from '@/lib/http';
+import { getAuthUser, requireAuth } from '@/lib/auth';
+import { LIMITS, handleRouteError, isHttpUrl, jsonError, readJson } from '@/lib/http';
 import { notifyMentions } from '@/lib/notifications';
+import { toPublicPost } from '@/lib/post-response';
 
 // Get all posts, newest first
-export async function GET() {
+export async function GET(req: Request) {
   try {
+    const viewer = await getAuthUser(req);
     await connectToDatabase();
     const posts = await Post.find().sort({ createdAt: -1 }).lean();
-    return NextResponse.json(posts);
+    return NextResponse.json(posts.map((post) => toPublicPost(post, viewer)));
   } catch (error) {
     return handleRouteError(error, 'Get posts error', 'Failed to get posts');
   }
@@ -32,6 +34,9 @@ export async function POST(req: Request) {
 
     const caption = optionalString(body.caption);
     if (!caption) return jsonError('Caption is required for posts', 400);
+    if (caption.length > LIMITS.caption) {
+      return jsonError(`Caption must be ${LIMITS.caption} characters or fewer`, 400);
+    }
 
     const image = optionalString(body.image);
     const video = optionalString(body.video);
@@ -39,6 +44,14 @@ export async function POST(req: Request) {
     const code = typeof body.code === 'string' && body.code.trim() ? body.code : undefined;
     const language = optionalString(body.language);
 
+    if (code && code.length > LIMITS.code) {
+      return jsonError(`Code must be ${LIMITS.code} characters or fewer`, 400);
+    }
+    if (language && language.length > LIMITS.language) {
+      return jsonError(`Language must be ${LIMITS.language} characters or fewer`, 400);
+    }
+    if (image && image.length > LIMITS.url) return jsonError('Image URL is too long', 400);
+    if (video && video.length > LIMITS.url) return jsonError('Video URL is too long', 400);
     if (image && !isHttpUrl(image)) return jsonError('Image must be an http(s) URL', 400);
     if (video && !isHttpUrl(video)) return jsonError('Video must be an http(s) URL', 400);
 
@@ -61,7 +74,7 @@ export async function POST(req: Request) {
 
     await notifyMentions(auth.username, caption, 'mentioned you in a post', String(post._id));
 
-    return NextResponse.json(post, { status: 201 });
+    return NextResponse.json(toPublicPost(post, auth), { status: 201 });
   } catch (error) {
     return handleRouteError(error, 'Create post error', 'Failed to create post');
   }

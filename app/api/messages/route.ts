@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { connectToDatabase } from "@/lib/mongodb"
 import { requireAuth } from "@/lib/auth"
-import { handleRouteError, jsonError, readJson } from "@/lib/http"
+import { LIMITS, handleRouteError, jsonError, readJson } from "@/lib/http"
 import { createNotification } from "@/lib/notifications"
 import Message from "@/models/Message"
 import User from "@/models/User"
@@ -57,7 +57,7 @@ export async function POST(req: Request) {
     const content = typeof body?.content === "string" ? body.content.trim() : ""
 
     if (!receiver || !content) return jsonError("Receiver and content are required", 400)
-    if (content.length > 2000) return jsonError("Message must be 2000 characters or fewer", 400)
+    if (content.length > LIMITS.message) return jsonError(`Message must be ${LIMITS.message} characters or fewer`, 400)
     if (receiver === auth.username) return jsonError("You cannot message yourself", 400)
 
     await connectToDatabase()

@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server"
 import { connectToDatabase } from "@/lib/mongodb"
+import { getAuthUser } from "@/lib/auth"
 import { handleRouteError, jsonError } from "@/lib/http"
+import { toPublicPost } from "@/lib/post-response"
 import { escapeRegex } from "@/lib/regex"
 import User from "@/models/User"
 import Post from "@/models/Post"
@@ -14,6 +16,7 @@ export async function GET(req: Request) {
 
     if (!query) return jsonError("Search query is required", 400)
 
+    const viewer = await getAuthUser(req)
     await connectToDatabase()
 
     const searchRegex = new RegExp(escapeRegex(query), "i")
@@ -27,12 +30,13 @@ export async function GET(req: Request) {
     }
 
     if (type === "all" || type === "posts") {
-      results.posts = await Post.find({
+      const posts = await Post.find({
         $or: [{ caption: searchRegex }, { "author.username": searchRegex }, { "comments.text": searchRegex }],
       })
         .sort({ createdAt: -1 })
         .limit(10)
         .lean()
+      results.posts = posts.map((post) => toPublicPost(post, viewer))
     }
 
     return NextResponse.json(results)

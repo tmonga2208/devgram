@@ -39,12 +39,13 @@ export function PostsProvider({ children }: { children: ReactNode }) {
   const [posts, setPosts] = useState<PostType[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const { authFetch } = useAuth();
+  const { authFetch, loading: authLoading } = useAuth();
 
   const fetchPosts = useCallback(async () => {
     try {
       setLoading(true);
-      const response = await fetch('/api/posts');
+      // Sent with the token when there is one, so each post carries the viewer's own save.
+      const response = await authFetch('/api/posts');
       setPosts(await parseOrThrow<PostType[]>(response, 'Failed to fetch posts'));
       setError(null);
     } catch (err) {
@@ -52,7 +53,7 @@ export function PostsProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [authFetch]);
 
   const replacePost = (updated: PostType) => {
     setPosts(prevPosts => prevPosts.map(post => (post._id === updated._id ? updated : post)));
@@ -101,9 +102,11 @@ export function PostsProvider({ children }: { children: ReactNode }) {
     setPosts(prevPosts => prevPosts.filter(post => post._id !== postId));
   };
 
+  // Load once the stored session is restored, and again after login or logout.
   useEffect(() => {
+    if (authLoading) return;
     fetchPosts();
-  }, [fetchPosts]);
+  }, [authLoading, fetchPosts]);
 
   return (
     <PostsContext.Provider
