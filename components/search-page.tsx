@@ -65,7 +65,7 @@ export function SearchPage() {
 
   return (
     <MainLayout>
-      <div className="container py-6">
+      <div className="container py-2 md:py-6">
         <h1 className="mb-6 text-2xl font-bold">
           Search results for &quot;{query}&quot;
         </h1>
@@ -85,7 +85,7 @@ export function SearchPage() {
                 {results.users.length > 0 && (
                   <div className="mb-8">
                     <h2 className="mb-4 text-xl font-semibold">Users</h2>
-                    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
                       {results.users.map((user) => (
                         <Link
                           key={user._id}
@@ -98,11 +98,11 @@ export function SearchPage() {
                                 <AvatarImage src={user.avatar} alt={user.username} />
                                 <AvatarFallback>{user.username[0]}</AvatarFallback>
                               </Avatar>
-                              <div>
-                                <div className="font-medium">{user.username}</div>
-                                <div className="text-sm text-muted-foreground">{user.fullName}</div>
+                              <div className="min-w-0">
+                                <div className="truncate font-medium">{user.username}</div>
+                                <div className="truncate text-sm text-muted-foreground">{user.fullName}</div>
                                 {user.bio && (
-                                  <p className="mt-1 text-sm line-clamp-2">{user.bio}</p>
+                                  <p className="mt-1 text-sm line-clamp-2 wrap-anywhere">{user.bio}</p>
                                 )}
                               </div>
                             </CardContent>
@@ -116,7 +116,7 @@ export function SearchPage() {
                 {results.posts.length > 0 && (
                   <div>
                     <h2 className="mb-4 text-xl font-semibold">Posts</h2>
-                    <div className="grid gap-4 md:grid-cols-2">
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                       {results.posts.map((post) => (
                         <Link
                           key={post._id}
@@ -130,14 +130,14 @@ export function SearchPage() {
                                   <AvatarImage src={post.author.avatar} alt={post.author.username} />
                                   <AvatarFallback>{post.author.username[0]}</AvatarFallback>
                                 </Avatar>
-                                <div>
-                                  <div className="font-medium">{post.author.username}</div>
+                                <div className="min-w-0">
+                                  <div className="truncate font-medium">{post.author.username}</div>
                                   <div className="text-xs text-muted-foreground">
                                     {formatDistanceToNow(new Date(post.createdAt), { addSuffix: true })}
                                   </div>
                                 </div>
                               </div>
-                              <p className="line-clamp-3">{post.caption}</p>
+                              <p className="line-clamp-3 wrap-anywhere">{post.caption}</p>
                               {post.image && (
                                 <div className="mt-3 aspect-video overflow-hidden rounded-md">
                                   {/* eslint-disable-next-line @next/next/no-img-element -- user-supplied URL, any host */}
@@ -169,7 +169,7 @@ export function SearchPage() {
             {isLoading ? (
               <div className="text-center">Loading...</div>
             ) : results.users.length > 0 ? (
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
                 {results.users.map((user) => (
                   <Link
                     key={user._id}
@@ -182,11 +182,11 @@ export function SearchPage() {
                           <AvatarImage src={user.avatar} alt={user.username} />
                           <AvatarFallback>{user.username[0]}</AvatarFallback>
                         </Avatar>
-                        <div>
-                          <div className="font-medium">{user.username}</div>
-                          <div className="text-sm text-muted-foreground">{user.fullName}</div>
+                        <div className="min-w-0">
+                          <div className="truncate font-medium">{user.username}</div>
+                          <div className="truncate text-sm text-muted-foreground">{user.fullName}</div>
                           {user.bio && (
-                            <p className="mt-1 text-sm line-clamp-2">{user.bio}</p>
+                            <p className="mt-1 text-sm line-clamp-2 wrap-anywhere">{user.bio}</p>
                           )}
                         </div>
                       </CardContent>
@@ -205,7 +205,7 @@ export function SearchPage() {
             {isLoading ? (
               <div className="text-center">Loading...</div>
             ) : results.posts.length > 0 ? (
-              <div className="grid gap-4 md:grid-cols-2">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 {results.posts.map((post) => (
                   <Link
                     key={post._id}
@@ -219,14 +219,14 @@ export function SearchPage() {
                             <AvatarImage src={post.author.avatar} alt={post.author.username} />
                             <AvatarFallback>{post.author.username[0]}</AvatarFallback>
                           </Avatar>
-                          <div>
-                            <div className="font-medium">{post.author.username}</div>
+                          <div className="min-w-0">
+                            <div className="truncate font-medium">{post.author.username}</div>
                             <div className="text-xs text-muted-foreground">
                               {formatDistanceToNow(new Date(post.createdAt), { addSuffix: true })}
                             </div>
                           </div>
                         </div>
-                        <p className="line-clamp-3">{post.caption}</p>
+                        <p className="line-clamp-3 wrap-anywhere">{post.caption}</p>
                         {post.image && (
                           <div className="mt-3 aspect-video overflow-hidden rounded-md">
                             {/* eslint-disable-next-line @next/next/no-img-element -- user-supplied URL, any host */}

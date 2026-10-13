@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
-import { Home, Search, Compass, MessageSquare, Heart, PlusSquare, User, Settings, LogOut } from "lucide-react"
+import { Home, Search, Compass, MessageSquare, Heart, PlusSquare, User, Settings } from "lucide-react"
 import { useAuth } from "@/contexts/auth-context"
 
 interface SidebarProps {
@@ -11,7 +11,7 @@ interface SidebarProps {
 }
 
 export function Sidebar({ className }: SidebarProps) {
-  const { user, logout } = useAuth()
+  const { user } = useAuth()
 
   return (
     <div className={cn("w-[240px] border-r px-3 py-6", className)}>
@@ -64,13 +64,6 @@ export function Sidebar({ className }: SidebarProps) {
             <span>Settings</span>
           </Button>
         </Link>
-        {/* The navbar's logout button is hidden below md, so the menu carries one. */}
-        {user && (
-          <Button variant="ghost" className="w-full justify-start gap-2 md:hidden" onClick={logout}>
-            <LogOut className="h-5 w-5" />
-            <span>Logout</span>
-          </Button>
-        )}
       </div>
     </div>
   )

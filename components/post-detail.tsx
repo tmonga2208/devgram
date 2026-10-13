@@ -71,7 +71,7 @@ export function PostDetail({ id }: PostDetailProps) {
 
   if (status === "loading") {
     return (
-      <div className="mx-auto max-w-6xl p-4">
+      <div className="mx-auto max-w-6xl md:p-4">
         <div className="aspect-video animate-pulse rounded-lg bg-muted" />
       </div>
     )
@@ -135,7 +135,7 @@ export function PostDetail({ id }: PostDetailProps) {
   }
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-6xl mx-auto p-4">
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-6xl mx-auto md:p-4">
       <div className="space-y-4">
         <div className="bg-card text-card-foreground rounded-lg shadow-md overflow-hidden">
           {post.image && (
@@ -170,15 +170,15 @@ export function PostDetail({ id }: PostDetailProps) {
               </button>
             </div>
 
-            <Link href={`/profile/${post.author.username}`} className="flex items-center gap-2">
+            <Link href={`/profile/${post.author.username}`} className="flex min-w-0 items-center gap-2">
               <Avatar className="h-8 w-8">
                 <AvatarImage src={post.author.avatar} alt={post.author.username} />
                 <AvatarFallback>{post.author.username[0].toUpperCase()}</AvatarFallback>
               </Avatar>
-              <span className="font-medium">{post.author.username}</span>
+              <span className="truncate font-medium">{post.author.username}</span>
             </Link>
 
-            {post.caption && <p className="whitespace-pre-wrap">{post.caption}</p>}
+            {post.caption && <p className="whitespace-pre-wrap wrap-anywhere">{post.caption}</p>}
             <p className="text-sm text-muted-foreground">
               {formatDistanceToNow(new Date(post.createdAt), { addSuffix: true })}
             </p>
@@ -190,8 +190,8 @@ export function PostDetail({ id }: PostDetailProps) {
                     <AvatarImage src={item.avatar} alt={item.username} />
                     <AvatarFallback>{item.username[0].toUpperCase()}</AvatarFallback>
                   </Avatar>
-                  <div>
-                    <p>
+                  <div className="min-w-0">
+                    <p className="wrap-anywhere">
                       <span className="font-medium mr-2">{item.username}</span>
                       {item.text}
                     </p>

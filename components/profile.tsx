@@ -116,7 +116,7 @@ export function Profile({ username }: ProfileProps) {
         </div>
         <div className="flex flex-1 flex-col items-center text-center md:items-start md:text-left">
           <div className="mb-4 flex flex-col items-center gap-4 md:flex-row">
-            <h1 className="text-2xl font-bold">{user.username}</h1>
+            <h1 className="max-w-full text-2xl font-bold wrap-anywhere">{user.username}</h1>
             <div className="flex gap-2">
               {!isOwnProfile && (
                 <>
@@ -154,7 +154,7 @@ export function Profile({ username }: ProfileProps) {
               <span className="text-muted-foreground">following</span>
             </div>
           </div>
-          <div>
+          <div className="max-w-full wrap-anywhere">
             <p className="font-medium">{user.fullName}</p>
             <p className="whitespace-pre-wrap">{user.bio}</p>
             {user.website && (

@@ -23,6 +23,9 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = {
   themeColor: "#18181b",
+  // Lets the page reach the screen edges on phones; the bars pad themselves
+  // back in with the safe-area insets.
+  viewportFit: "cover",
 }
 
 export default function RootLayout({
@@ -37,7 +40,11 @@ export default function RootLayout({
           <AuthProvider>
             <PostsProvider>
               {children}
-              <Toaster position="bottom-right" />
+              {/* On phones toasts sit above the tab bar instead of covering it. */}
+              <Toaster
+                position="bottom-right"
+                containerClassName="max-md:bottom-[calc(var(--tab-bar-height)+0.5rem)]!"
+              />
             </PostsProvider>
           </AuthProvider>
         </ThemeProvider>

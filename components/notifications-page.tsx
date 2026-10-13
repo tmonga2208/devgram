@@ -5,7 +5,8 @@ import Link from "next/link"
 import { formatDistanceToNow } from "date-fns"
 import { Button } from "@/components/ui/button"
 import { useAuth } from "@/contexts/auth-context"
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Tabs, TabsList, TabsTrigger, scrollableTabsList } from "@/components/ui/tabs"
+import { cn } from "@/lib/utils"
 import { Heart, MessageCircle, UserPlus, Bell } from "lucide-react"
 import toast from "react-hot-toast"
 
@@ -137,7 +138,7 @@ export function NotificationsPage() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="mb-6">
-        <TabsList className="grid w-full grid-cols-5">
+        <TabsList className={cn(scrollableTabsList, "md:grid md:grid-cols-5")}>
           <TabsTrigger value="all">All</TabsTrigger>
           <TabsTrigger value="like">Likes</TabsTrigger>
           <TabsTrigger value="comment">Comments</TabsTrigger>
@@ -159,11 +160,11 @@ export function NotificationsPage() {
                 notification.read ? "bg-background" : "bg-muted/50"
               }`}
             >
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted">
                 {getNotificationIcon(notification.type)}
               </div>
-              <div className="flex-1">
-                <p>
+              <div className="min-w-0 flex-1">
+                <p className="wrap-anywhere">
                   <Link 
                     href={`/profile/${notification.user.username}`} 
                     className="font-medium hover:underline"
@@ -188,7 +189,7 @@ export function NotificationsPage() {
                 <Button 
                   variant="ghost" 
                   size="sm" 
-                  className="h-8 w-8 p-0"
+                  className="h-8 w-8 shrink-0 p-0"
                   onClick={() => markAsRead([notification._id])}
                 >
                   <span className="sr-only">Mark as read</span>

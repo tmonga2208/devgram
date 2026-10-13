@@ -63,4 +63,10 @@ function TabsContent({
   )
 }
 
-export { Tabs, TabsList, TabsTrigger, TabsContent }
+// For a TabsList with more tabs than fit across a phone: below md the tabs
+// keep their natural width and the row scrolls sideways when it has to. Add
+// the grid columns for larger screens next to it (`md:grid md:grid-cols-4`).
+const scrollableTabsList =
+  "w-full max-md:flex max-md:justify-start max-md:overflow-x-auto max-md:[scrollbar-width:none] max-md:[&::-webkit-scrollbar]:hidden max-md:[&>*]:flex-[1_0_auto]"
+
+export { Tabs, TabsList, TabsTrigger, TabsContent, scrollableTabsList }

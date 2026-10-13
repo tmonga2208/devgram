@@ -1,7 +1,9 @@
 // End-to-end API smoke test. Needs `npm run dev` running and MONGODB_URI in .env.local.
 // Usage: npm run smoke            (all sections)
 //        npm run smoke -- posts   (one or more named sections)
-import mongoose from "mongoose"
+// SMOKE_BASE_URL picks the server. SMOKE_DB names that server's database when
+// it is not the one in MONGODB_URI.
+import { assertSameDatabase, removeTestUsers } from "./lib/test-users.mjs"
 
 const BASE = process.env.SMOKE_BASE_URL || "http://localhost:3000"
 const run = Math.random().toString(36).slice(2, 8)
@@ -547,24 +549,12 @@ const sections = {
 }
 
 async function cleanup() {
-  await mongoose.connect(process.env.MONGODB_URI)
-  const db = mongoose.connection
-  const list = Object.values(names)
-  const removed = {
-    posts: await db.collection("posts").deleteMany({ "author.username": { $in: list } }),
-    messages: await db
-      .collection("messages")
-      .deleteMany({ $or: [{ sender: { $in: list } }, { receiver: { $in: list } }] }),
-    notifications: await db
-      .collection("notifications")
-      .deleteMany({ $or: [{ sender: { $in: list } }, { recipient: { $in: list } }] }),
-    users: await db.collection("users").deleteMany({ username: { $in: list } }),
-  }
-  await mongoose.disconnect()
-  console.log(
-    `cleanup: ${Object.entries(removed)
-      .map(([k, v]) => `${k}=${v.deletedCount}`)
-      .join(" ")}`,
+  const { summary, leftovers } = await removeTestUsers(BASE, Object.values(names))
+  console.log(summary)
+  check(
+    "cleanup removed the test users from the target's database",
+    leftovers.length === 0,
+    `still there: ${leftovers.join(", ")} -- set SMOKE_DB to the database ${BASE} uses`,
   )
 }
 
@@ -580,6 +570,12 @@ async function main() {
     process.exit(2)
   }
   const toRun = wanted.length ? wanted : Object.keys(sections)
+  try {
+    await assertSameDatabase(BASE)
+  } catch (error) {
+    console.error(error.message)
+    process.exit(2)
+  }
   try {
     for (const name of toRun) {
       console.log(`\n[${name}]`)

@@ -4,7 +4,7 @@ import { DirectMessages } from "@/components/direct-messages"
 
 export default function DirectMessagesPage() {
   return (
-    <MainLayout>
+    <MainLayout fill>
       <Suspense fallback={null}>
         <DirectMessages />
       </Suspense>

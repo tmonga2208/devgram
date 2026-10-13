@@ -1,16 +1,22 @@
 "use client"
 
 import type React from "react"
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import Link from "next/link"
-import { useSearchParams } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { formatDistanceToNow } from "date-fns"
 import { Send } from "lucide-react"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { useAuth } from "@/contexts/auth-context"
+import { cn } from "@/lib/utils"
 import toast from "react-hot-toast"
+
+// The list and the thread fill the screen between the two bars on phones and
+// sit side by side from md up.
+const PANES =
+  "h-[calc(100dvh-var(--top-bar-height)-var(--tab-bar-height))] md:grid md:h-[calc(100vh-4rem)] md:grid-cols-3 md:gap-4"
 
 interface Message {
   _id: string
@@ -32,15 +38,19 @@ interface Conversation {
 
 export function DirectMessages() {
   const { user, token, authFetch } = useAuth()
+  const router = useRouter()
   const searchParams = useSearchParams()
   const [activeChat, setActiveChat] = useState<string | null>(null)
   const [message, setMessage] = useState("")
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [messages, setMessages] = useState<Message[]>([])
   const [loading, setLoading] = useState(true)
+  const messagesRef = useRef<HTMLDivElement>(null)
 
   // Get the user parameter from the URL
   const userParam = searchParams.get('user')
+  // On phones the thread is its own screen, shown when the address names a user.
+  const threadOpen = Boolean(userParam)
 
   useEffect(() => {
     const fetchConversations = async () => {
@@ -151,6 +161,21 @@ export function DirectMessages() {
     fetchUserData();
   }, [userParam, token, conversations, authFetch]);
 
+  // Keep the newest message in view.
+  useEffect(() => {
+    const list = messagesRef.current
+    if (list) list.scrollTop = list.scrollHeight
+  }, [messages, threadOpen])
+
+  const openChat = (username: string) => {
+    setActiveChat(username)
+    // On phones the thread gets its own history entry, so going back returns
+    // to the list.
+    if (!window.matchMedia("(min-width: 768px)").matches) {
+      router.push(`/direct?user=${encodeURIComponent(username)}`)
+    }
+  }
+
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!message.trim() || !activeChat || !token) return
@@ -194,8 +219,8 @@ export function DirectMessages() {
   if (loading) {
     return (
       <div className="mx-auto max-w-4xl">
-        <div className="grid h-[calc(100vh-4rem)] grid-cols-3 gap-4">
-          <div className="col-span-1 border-r">
+        <div className={PANES}>
+          <div className="md:col-span-1 md:border-r">
             <div className="animate-pulse space-y-4 p-4">
               {[...Array(5)].map((_, i) => (
                 <div key={i} className="flex items-center gap-4">
@@ -208,7 +233,7 @@ export function DirectMessages() {
               ))}
             </div>
           </div>
-          <div className="col-span-2">
+          <div className="hidden md:col-span-2 md:block">
             <div className="flex h-full items-center justify-center">
               <p className="text-muted-foreground">Select a conversation</p>
             </div>
@@ -222,16 +247,26 @@ export function DirectMessages() {
 
   return (
     <div className="mx-auto max-w-4xl">
-      <div className="grid h-[calc(100vh-4rem)] grid-cols-3 gap-4">
-        <div className="col-span-1 border-r">
+      <div className={PANES}>
+        <div
+          className={cn(
+            "h-full overflow-y-auto md:col-span-1 md:block md:h-auto md:overflow-visible md:border-r",
+            threadOpen && "hidden",
+          )}
+        >
+          {conversations.length === 0 && (
+            <p className="p-8 text-center text-muted-foreground md:hidden">
+              No conversations yet. Open someone&apos;s profile and tap Message to start one.
+            </p>
+          )}
           <div className="space-y-4 p-4">
             {conversations.map((conversation) => (
               <button
                 key={conversation.username}
-                onClick={() => setActiveChat(conversation.username)}
+                onClick={() => openChat(conversation.username)}
                 className={`flex w-full items-center gap-4 rounded-lg p-4 transition-colors ${
                   activeChat === conversation.username
-                    ? "bg-muted"
+                    ? "md:bg-muted"
                     : "hover:bg-muted/50"
                 }`}
               >
@@ -244,13 +279,13 @@ export function DirectMessages() {
                     {conversation.username.slice(0, 2).toUpperCase()}
                   </AvatarFallback>
                 </Avatar>
-                <div className="flex-1 text-left">
-                  <p className="font-medium">{conversation.username}</p>
+                <div className="min-w-0 flex-1 text-left">
+                  <p className="truncate font-medium">{conversation.username}</p>
                   <p className="text-sm text-muted-foreground line-clamp-1">
                     {conversation.lastMessage.content}
                   </p>
                 </div>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-xs text-muted-foreground max-md:shrink-0 max-md:whitespace-nowrap">
                   {formatDistanceToNow(new Date(conversation.lastMessage.timestamp), {
                     addSuffix: true,
                   })}
@@ -261,7 +296,7 @@ export function DirectMessages() {
         </div>
 
         {activeConversation ? (
-          <div className="col-span-2 flex h-full flex-col">
+          <div className={cn("h-full flex-col md:col-span-2 md:flex", threadOpen ? "flex" : "hidden")}>
             <div className="flex items-center gap-3 border-b p-4">
               <Link href={`/profile/${activeConversation.username}`}>
                 <Avatar>
@@ -274,17 +309,17 @@ export function DirectMessages() {
                   </AvatarFallback>
                 </Avatar>
               </Link>
-              <div>
+              <div className="min-w-0">
                 <Link
                   href={`/profile/${activeConversation.username}`}
-                  className="font-medium hover:underline"
+                  className="block truncate font-medium hover:underline"
                 >
                   {activeConversation.username}
                 </Link>
               </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-4">
+            <div ref={messagesRef} className="flex-1 overflow-y-auto p-4">
               {messages.map((msg) => (
                 <div
                   key={msg._id}
@@ -299,7 +334,7 @@ export function DirectMessages() {
                         : "bg-muted text-muted-foreground"
                     }`}
                   >
-                    <p>{msg.content}</p>
+                    <p className="wrap-anywhere">{msg.content}</p>
                     <p className="mt-1 text-right text-xs opacity-70">
                       {formatDistanceToNow(new Date(msg.createdAt), {
                         addSuffix: true,
@@ -326,7 +361,9 @@ export function DirectMessages() {
             </div>
           </div>
         ) : (
-          <div className="col-span-2 flex h-full items-center justify-center">
+          <div
+            className={cn("h-full items-center justify-center md:col-span-2 md:flex", threadOpen ? "flex" : "hidden")}
+          >
             <div className="text-center text-muted-foreground">
               <p>Select a conversation to start messaging</p>
             </div>

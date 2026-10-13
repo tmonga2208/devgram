@@ -99,7 +99,7 @@ export function Search() {
           placeholder="Search users and posts..."
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          className="pr-10"
+          className="pr-10 text-ellipsis"
         />
         <Button
           type="submit"
@@ -141,9 +141,9 @@ export function Search() {
                                 <AvatarImage src={user.avatar} alt={user.username} />
                                 <AvatarFallback>{user.username[0]}</AvatarFallback>
                               </Avatar>
-                              <div>
-                                <div className="font-medium">{user.username}</div>
-                                <div className="text-xs text-muted-foreground">{user.fullName}</div>
+                              <div className="min-w-0">
+                                <div className="truncate font-medium">{user.username}</div>
+                                <div className="truncate text-xs text-muted-foreground">{user.fullName}</div>
                               </div>
                             </Link>
                           ))}
@@ -167,9 +167,9 @@ export function Search() {
                                   <AvatarImage src={post.author.avatar} alt={post.author.username} />
                                   <AvatarFallback>{post.author.username[0]}</AvatarFallback>
                                 </Avatar>
-                                <span className="text-sm font-medium">{post.author.username}</span>
+                                <span className="truncate text-sm font-medium">{post.author.username}</span>
                               </div>
-                              <p className="mt-1 text-sm line-clamp-2">{post.caption}</p>
+                              <p className="mt-1 text-sm line-clamp-2 wrap-anywhere">{post.caption}</p>
                             </Link>
                           ))}
                         </div>
@@ -201,9 +201,9 @@ export function Search() {
                           <AvatarImage src={user.avatar} alt={user.username} />
                           <AvatarFallback>{user.username[0]}</AvatarFallback>
                         </Avatar>
-                        <div>
-                          <div className="font-medium">{user.username}</div>
-                          <div className="text-xs text-muted-foreground">{user.fullName}</div>
+                        <div className="min-w-0">
+                          <div className="truncate font-medium">{user.username}</div>
+                          <div className="truncate text-xs text-muted-foreground">{user.fullName}</div>
                         </div>
                       </Link>
                     ))}
@@ -232,9 +232,9 @@ export function Search() {
                             <AvatarImage src={post.author.avatar} alt={post.author.username} />
                             <AvatarFallback>{post.author.username[0]}</AvatarFallback>
                           </Avatar>
-                          <span className="text-sm font-medium">{post.author.username}</span>
+                          <span className="truncate text-sm font-medium">{post.author.username}</span>
                         </div>
-                        <p className="mt-1 text-sm line-clamp-2">{post.caption}</p>
+                        <p className="mt-1 text-sm line-clamp-2 wrap-anywhere">{post.caption}</p>
                       </Link>
                     ))}
                   </div>

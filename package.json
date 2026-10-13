@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "smoke": "node --env-file=.env.local scripts/smoke.mjs"
+    "smoke": "node --env-file=.env.local scripts/smoke.mjs",
+    "mobile-check": "node --env-file=.env.local scripts/mobile-check.mjs"
   },
   "dependencies": {
     "@radix-ui/react-avatar": "^1.1.7",

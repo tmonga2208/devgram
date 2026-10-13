@@ -44,6 +44,16 @@
 }
 
 :root {
+  /* The parts of the screen a phone covers with its notch, rounded corners
+     and home indicator, and the heights of the phone layout's two fixed bars
+     once those are added. The top bar's border sits outside its 3.5rem. */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --top-bar-height: calc(3.5rem + 1px + var(--safe-top));
+  --tab-bar-height: calc(3.5rem + var(--safe-bottom));
+
   --radius: 0.625rem;
   --background: oklch(1 0 0);
   --foreground: oklch(0.141 0.005 285.823);

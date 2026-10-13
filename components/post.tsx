@@ -90,12 +90,12 @@ export function Post({ post }: PostProps) {
     <div className="bg-white dark:bg-gray-900 rounded-lg shadow-md overflow-hidden">
       {/* Post Header */}
       <div className="p-4 flex items-center justify-between">
-        <Link href={`/profile/${post.author.username}`} className="flex items-center">
+        <Link href={`/profile/${post.author.username}`} className="flex min-w-0 items-center">
           <Avatar className="h-8 w-8">
             <AvatarImage src={post.author.avatar} alt={post.author.username} />
             <AvatarFallback>{post.author.username[0].toUpperCase()}</AvatarFallback>
           </Avatar>
-          <span className="ml-3 font-medium">{post.author.username}</span>
+          <span className="ml-3 truncate font-medium">{post.author.username}</span>
         </Link>
         {isAuthor && (
           <Dialog>
@@ -193,7 +193,7 @@ export function Post({ post }: PostProps) {
         </TooltipProvider>
 
         <p className="font-medium">{post.likes} likes</p>
-        <p className="mt-1">
+        <p className="mt-1 wrap-anywhere">
           <Link href={`/profile/${post.author.username}`} className="font-medium mr-2">
             {post.author.username}
           </Link>
@@ -215,8 +215,8 @@ export function Post({ post }: PostProps) {
                     <AvatarImage src={item.avatar} alt={item.username} />
                     <AvatarFallback>{item.username[0].toUpperCase()}</AvatarFallback>
                   </Avatar>
-                  <div>
-                    <p className="text-sm">
+                  <div className="min-w-0">
+                    <p className="text-sm wrap-anywhere">
                       <span className="font-medium mr-2">{item.username}</span>
                       {item.text}
                     </p>
