@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { Code, ImageIcon, VideoIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -15,6 +15,9 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { usePosts } from "@/contexts/posts-context"
 import { MediaPicker } from "@/components/media-picker"
 import { usePhotoUpload } from "@/hooks/use-photo-upload"
+import { useVideoUpload } from "@/hooks/use-video-upload"
+import type { NewPost } from "@/contexts/posts-context"
+import { UPLOAD_FAILED } from "@/lib/upload-client"
 import toast from "react-hot-toast"
 
 export function CreatePostForm() {
@@ -30,56 +33,66 @@ export function CreatePostForm() {
   const [videoUrl , setVideoUrl] = useState("")
   const { photo, select: selectPhoto, clear: clearPhoto } = usePhotoUpload("post")
   const photoBusy = photo !== null && photo.url === null && photo.error === null
+  const { video: upload, select: selectVideo, clear: clearVideo } = useVideoUpload()
+  // Post was pressed before the video was ready: publish as soon as it is.
+  const [publishWhenReady, setPublishWhenReady] = useState(false)
+  const publishing = useRef(false)
+
+  const publish = useCallback(
+    async (data: NewPost) => {
+      if (publishing.current) return
+      publishing.current = true
+      setIsSubmitting(true)
+      try {
+        const promise = createPost(data)
+        toast.promise(promise, {
+          loading: "Creating your post...",
+          success: "Post created successfully!",
+          error: (err) => `Failed to create post: ${err.message}`,
+        })
+        await promise
+        router.push("/")
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to create post")
+        publishing.current = false
+      } finally {
+        setIsSubmitting(false)
+      }
+    },
+    [createPost, router],
+  )
+
+  useEffect(() => {
+    if (!publishWhenReady || !upload) return
+    if (upload.phase === "ready" && upload.uploadId) {
+      setPublishWhenReady(false)
+      publish({ caption, videoUploadId: upload.uploadId })
+    } else if (upload.phase === "failed") {
+      setPublishWhenReady(false)
+      setError(upload.error || UPLOAD_FAILED)
+    }
+  }, [publishWhenReady, upload, caption, publish])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError("")
-    setIsSubmitting(true)
 
-    try {
+    if (activeTab === "image") {
       const image = photo?.url || imageUrl.trim()
-      if (activeTab === "image" && !image) {
-        setError("Choose a photo or paste an image link")
-        setIsSubmitting(false)
-        return
-      }
-
-      if (activeTab === "video" && !videoUrl) {
-        setError("Video URL is required for video posts")
-        toast.error("Video URL is required for video posts")
-        setIsSubmitting(false)
-        return
-      }
-
-      if (activeTab === "code" && !code) {
-        setError("Code is required for code posts")
-        toast.error("Code is required for code posts")
-        setIsSubmitting(false)
-        return
-      }
-
-      const promise = createPost({
-        caption,
-        image: activeTab === "image" ? image : undefined,
-        code: activeTab === "code" ? code : undefined,
-        video: activeTab === "video" ? videoUrl : undefined,
-        language: activeTab === "code" ? language : undefined,
-      })
-
-      toast.promise(promise, {
-        loading: 'Creating your post...',
-        success: 'Post created successfully!',
-        error: (err) => `Failed to create post: ${err.message}`,
-      })
-
-      await promise
-      router.push("/")
-    } catch (err) {
-      // toast.promise above has already shown the error toast.
-      setError(err instanceof Error ? err.message : "Failed to create post")
-    } finally {
-      setIsSubmitting(false)
+      if (!image) return setError("Choose a photo or paste an image link")
+      return publish({ caption, image })
     }
+    if (activeTab === "video") {
+      if (upload) {
+        if (upload.phase === "failed") return setError(upload.error || UPLOAD_FAILED)
+        if (upload.phase !== "ready" || !upload.uploadId) return setPublishWhenReady(true)
+        return publish({ caption, videoUploadId: upload.uploadId })
+      }
+      if (!videoUrl.trim()) return setError("Choose a video or paste a video link")
+      return publish({ caption, video: videoUrl.trim() })
+    }
+    if (!code) return setError("Code is required for code posts")
+    return publish({ caption, code, language })
   }
 
   return (
@@ -139,15 +152,40 @@ export function CreatePostForm() {
                 </div>
               </TabsContent>
               <TabsContent value="video" className="mt-4 space-y-4">
+                <MediaPicker
+                  kind="video"
+                  previewUrl={upload?.previewUrl ?? null}
+                  progress={upload?.phase === "uploading" ? upload.progress : null}
+                  status={
+                    upload?.phase === "uploading"
+                      ? `Uploading ${Math.round(upload.progress)}%`
+                      : upload?.phase === "processing"
+                        ? "Processing video…"
+                        : upload?.phase === "ready"
+                          ? "Video ready"
+                          : null
+                  }
+                  error={upload?.error ?? null}
+                  onSelect={(file) => {
+                    setVideoUrl("")
+                    selectVideo(file)
+                  }}
+                  onClear={() => {
+                    setPublishWhenReady(false)
+                    clearVideo()
+                  }}
+                />
                 <div className="space-y-2">
-                  <Label htmlFor="videoUrl">Video URL</Label>
+                  <Label htmlFor="videoUrl">Or paste a YouTube, Vimeo or video link</Label>
                   <Input
                     id="videoUrl"
                     type="url"
-                    placeholder="https://example.com/video.mp4"
+                    placeholder="https://youtu.be/…"
                     value={videoUrl}
-                    onChange={(e) => setVideoUrl(e.target.value)}
-                    required={activeTab === "video"}
+                    onChange={(e) => {
+                      setVideoUrl(e.target.value)
+                      if (e.target.value) clearVideo()
+                    }}
                   />
                 </div>
               </TabsContent>
@@ -193,8 +231,12 @@ export function CreatePostForm() {
                 required
               />
             </div>
-            <Button type="submit" disabled={isSubmitting || (activeTab === "image" && photoBusy)} className="mt-4 w-full">
-              {isSubmitting ? "Posting..." : "Post"}
+            <Button
+              type="submit"
+              disabled={isSubmitting || publishWhenReady || (activeTab === "image" && photoBusy)}
+              className="mt-4 w-full"
+            >
+              {isSubmitting ? "Posting..." : publishWhenReady ? "Processing video…" : "Post"}
             </Button>
           </form>
         </CardContent>

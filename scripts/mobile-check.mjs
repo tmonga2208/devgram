@@ -542,6 +542,41 @@ async function main() {
       check("profile: shows the uploaded profile picture", avatarSrc.includes("/avatars/"), avatarSrc)
     }
 
+    console.log("\n[video upload]")
+    if (!process.env.MUX_TOKEN_ID) {
+      console.log("  skip video upload (MUX_TOKEN_ID is not set)")
+    } else {
+      await open(page, "/create")
+      // Radix tabs switch on mouse down, as a tap starts, not on click().
+      await page.evaluate(`[...document.querySelectorAll('[role="tab"]')]
+        .find((tab) => tab.textContent.includes("Video"))
+        ?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }))`)
+      await sleep(300)
+      const chooser = await page.evaluate(buttonHeight("Choose video"))
+      check(`create: the Choose video button is at least ${TAP_TARGET}px tall`, chooser >= TAP_TARGET, `height ${chooser}px`)
+
+      await page.setInputFiles('main input[type="file"][accept^="video"]', [fixture("clip-2s.mp4")])
+      const caption = `phone video ${run}`
+      await page.type("#caption", caption)
+      // An impatient double press while the video is still uploading.
+      await page.evaluate(`(() => {
+        const post = [...document.querySelectorAll("main button")].find((b) => b.textContent.trim() === "Post")
+        post.click()
+        post.click()
+      })()`)
+      check(
+        "create: Post waits while the video is processed",
+        await page.waitFor(`[...document.querySelectorAll("main button")].some((b) => b.textContent.includes("Processing video"))`, { timeout: 10000 }),
+      )
+      const posted = await page.waitFor(`location.pathname === "/"`, { timeout: 180000 })
+      check("create: the video posts itself once it is ready", posted)
+      await sleep(1000)
+      const copies = await page.evaluate(
+        `[...document.querySelectorAll("main p")].filter((p) => p.textContent.includes(${JSON.stringify(caption)})).length`,
+      )
+      check("create: pressing Post twice makes one post", copies === 1, `${copies} posts`)
+    }
+
     console.log("\n[small phone]")
     await page.setViewport(SMALL_PHONE)
     await open(page, "/")
