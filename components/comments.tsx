@@ -9,6 +9,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { useAuth } from "@/contexts/auth-context"
 import { RequestError, usePosts } from "@/contexts/posts-context"
 import type { CommentType } from "@/lib/types"
+import { cn } from "@/lib/utils"
 
 interface CommentsProps {
   postId: string
@@ -17,11 +18,13 @@ interface CommentsProps {
   onAdded: (comment: CommentType) => void
   // Called when the post turns out to be deleted. Without it, a toast says so.
   onRemoved?: () => void
+  // Extra classes for the list, so a panel can scroll it and keep the form in view.
+  listClassName?: string
 }
 
 // A post's comments and the form to add one. Used by the post page and the
 // DevBits comments panel.
-export function Comments({ postId, comments, onAdded, onRemoved }: CommentsProps) {
+export function Comments({ postId, comments, onAdded, onRemoved, listClassName }: CommentsProps) {
   const { user } = useAuth()
   const { addComment } = usePosts()
   const [text, setText] = useState("")
@@ -45,7 +48,7 @@ export function Comments({ postId, comments, onAdded, onRemoved }: CommentsProps
 
   return (
     <>
-      <div className="space-y-4">
+      <div className={cn("space-y-4", listClassName)}>
         {comments.map((item) => (
           <div key={item._id} className="flex gap-2">
             <Avatar className="h-8 w-8">

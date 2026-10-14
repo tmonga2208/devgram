@@ -212,6 +212,8 @@ const DEVBITS_STATE = `(() => {
       return {
         id: slide.getAttribute("data-devbit"),
         author: slide.getAttribute("data-author"),
+        player: Boolean(video),
+        thumbnail: Boolean(slide.querySelector('img[src^="https://image.mux.com/"]')),
         height: rect(slide).height,
         playing: Boolean(video && !video.paused),
         muted: Boolean(video && video.muted),
@@ -574,9 +576,17 @@ async function main() {
       )
       check("devbits: fits the width of the screen", fitsScreen(bars, PHONE), widthDetail(bars, PHONE))
       check(
-        "devbits: only the next DevBit loads ahead, and only its metadata",
-        first.slides[1]?.preload === "metadata" && first.slides.slice(2).every((slide) => slide.preload === "none"),
+        "devbits: the next DevBit loads only its metadata ahead",
+        first.slides[1]?.preload === "metadata",
         first.slides.map((slide) => slide.preload).join(", "),
+      )
+      check(
+        "devbits: only the DevBits next to the one on screen have a player; the rest show a thumbnail",
+        first.slides.length > 2 &&
+          first.slides[0].player &&
+          first.slides[1].player &&
+          first.slides.slice(2).every((slide) => !slide.player && slide.thumbnail),
+        first.slides.map((slide) => (slide.player ? "player" : slide.thumbnail ? "thumbnail" : "nothing")).join(", "),
       )
 
       await page.evaluate(`${list}.scrollBy({ top: ${list}.clientHeight })`)
@@ -618,6 +628,10 @@ async function main() {
       const scrolledBefore = (await page.evaluate(DEVBITS_STATE)).scrollTop
       await page.evaluate(click(`${slideOf(devbits.one)}.querySelector('button[aria-label="Comments"]')`))
       check("devbits: comments open in a panel", await page.waitFor(`document.querySelector('[role="dialog"]')?.textContent.includes("Comments")`, { timeout: 5000 }))
+      check(
+        "devbits: opening comments doesn't bring up the keyboard",
+        !(await page.evaluate(`Boolean(document.activeElement?.matches?.("input, textarea"))`)),
+      )
       const comment = `bit comment ${run}`
       await page.type('[role="dialog"] input[placeholder="Add a comment..."]', comment)
       await page.evaluate(click(`document.querySelector('[role="dialog"] button[aria-label="Post comment"]')`))
@@ -645,6 +659,24 @@ async function main() {
         "devbits: without a share sheet, share copies the link",
         await page.waitFor(`window.__copied === ${JSON.stringify(link)} && document.body.textContent.includes("Link copied")`, { timeout: 5000 }),
       )
+
+      // Enough comments to scroll: the box to write one stays in view.
+      for (let i = 0; i < 12; i++) await api("POST", `/api/posts/${devbits.one}/comments`, b.token, { text: `filler ${i} ${run}` })
+      await open(page, `/devbits/${devbits.one}`)
+      await page.evaluate(click(`${slideOf(devbits.one)}.querySelector('button[aria-label="Comments"]')`))
+      await page.waitFor(`document.querySelector('[role="dialog"]')?.textContent.includes("filler 11")`, { timeout: 5000 })
+      const form = await page.evaluate(`(() => {
+        const dialog = document.querySelector('[role="dialog"]').getBoundingClientRect()
+        const input = document.querySelector('[role="dialog"] input[placeholder="Add a comment..."]').getBoundingClientRect()
+        return { dialogTop: dialog.top, dialogBottom: dialog.bottom, inputTop: input.top, inputBottom: input.bottom }
+      })()`)
+      check(
+        "devbits: with many comments, the comment box stays in view",
+        form.inputTop >= form.dialogTop && form.inputBottom <= form.dialogBottom,
+        JSON.stringify(form),
+      )
+      await page.evaluate(click(`[...document.querySelectorAll('[role="dialog"] button')].find((button) => button.textContent.trim() === "Close")`))
+      await page.waitFor(`!document.querySelector('[role="dialog"]')`, { timeout: 5000 })
 
       await open(page, `/devbits/${devbits.two}`)
       check("devbits: someone else's DevBit offers Follow", await page.waitFor(`Boolean(${slideOf(devbits.two)}?.querySelector("[data-follow]"))`, { timeout: 10000 }))
@@ -922,6 +954,8 @@ async function main() {
       fitsScreen(smallSettings, SMALL_PHONE),
       widthDetail(smallSettings, SMALL_PHONE),
     )
+    await open(page, "/create")
+    await tabRowChecks(page, "small phone, create", 4)
 
     console.log("\n[safe areas]")
     await page.setViewport(PHONE)
@@ -959,6 +993,22 @@ async function main() {
     check(
       "desktop: the sidebar links to DevBits",
       await page.evaluate(`[...document.querySelectorAll('a[href="/devbits"]')].some((link) => link.getBoundingClientRect().width > 0 && !link.closest("main"))`),
+    )
+    await open(page, "/devbits")
+    const desktopDevbits = await page.evaluate(`(() => {
+      const list = document.querySelector("[data-devbits-list]")
+      return {
+        pageHeight: document.documentElement.scrollHeight,
+        height: innerHeight,
+        listBottom: list ? list.getBoundingClientRect().bottom : null,
+      }
+    })()`)
+    check(
+      "desktop, devbits: the DevBits column fits the window",
+      desktopDevbits.listBottom !== null &&
+        desktopDevbits.listBottom <= desktopDevbits.height + 1 &&
+        desktopDevbits.pageHeight <= desktopDevbits.height + 1,
+      JSON.stringify(desktopDevbits),
     )
   } catch (error) {
     failures++

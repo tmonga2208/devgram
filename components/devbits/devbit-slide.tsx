@@ -5,6 +5,7 @@ import Link from "next/link"
 import { Heart, MessageCircle, MoreHorizontal, Play, Share2 } from "lucide-react"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { DevBitVideo } from "@/components/devbits/devbit-video"
+import { muxThumbnailUrl } from "@/lib/media-urls"
 import { cn } from "@/lib/utils"
 import type { PostType } from "@/lib/types"
 
@@ -14,6 +15,9 @@ interface DevBitSlideProps {
   active: boolean
   // Next in line: it loads its video's metadata ahead of time.
   next: boolean
+  // On screen or next to it: it gets a player. The rest show their thumbnail,
+  // so a long feed doesn't hold a player per DevBit.
+  near: boolean
   muted: boolean
   // The signed-in viewer's username, or null.
   viewer: string | null
@@ -65,6 +69,7 @@ export function DevBitSlide({
   devbit,
   active,
   next,
+  near,
   muted,
   viewer,
   followsAuthor,
@@ -103,15 +108,25 @@ export function DevBitSlide({
       className="relative flex h-full items-center justify-center"
     >
       <div className="relative h-full w-full md:aspect-[9/16] md:w-auto md:max-w-full">
-        <DevBitVideo
-          playbackId={video.playbackId}
-          playing={active && !pausedByTap && !blocked && !failed}
-          muted={muted}
-          preload={active ? "auto" : next ? "metadata" : "none"}
-          fill={isVertical(video.aspectRatio)}
-          onBlocked={onBlocked}
-          onError={onError}
-        />
+        {near ? (
+          <DevBitVideo
+            playbackId={video.playbackId}
+            playing={active && !pausedByTap && !blocked && !failed}
+            muted={muted}
+            preload={active ? "auto" : next ? "metadata" : "none"}
+            fill={isVertical(video.aspectRatio)}
+            onBlocked={onBlocked}
+            onError={onError}
+          />
+        ) : (
+          // eslint-disable-next-line @next/next/no-img-element -- Mux thumbnail
+          <img
+            src={muxThumbnailUrl(video.playbackId, 720)}
+            alt=""
+            loading="lazy"
+            className={cn("h-full w-full", isVertical(video.aspectRatio) ? "object-cover" : "object-contain")}
+          />
+        )}
         <button
           type="button"
           data-devbit-video

@@ -19,8 +19,9 @@ interface DevBitsViewerProps {
 }
 
 // The space between the top bar and the tab bar on phones; below the top bar
-// and inside the page padding on wider screens.
-export const DEVBITS_HEIGHT = "h-[calc(100dvh-var(--top-bar-height)-var(--tab-bar-height))] md:h-[calc(100dvh-7rem)]"
+// and inside the page padding (7rem) on wider screens.
+export const DEVBITS_HEIGHT =
+  "h-[calc(100dvh-var(--top-bar-height)-var(--tab-bar-height))] md:h-[calc(100dvh-var(--top-bar-height)-7rem)]"
 
 // A list that snaps one DevBit per screen. The DevBit at least 60% on screen
 // plays and the rest wait. Sound starts off; the speaker button turns it on
@@ -157,6 +158,7 @@ export function DevBitsViewer({ devbits, startIndex }: DevBitsViewerProps) {
               devbit={devbit}
               active={index === active}
               next={index === active + 1}
+              near={Math.abs(index - active) <= 1}
               muted={muted}
               viewer={user?.username ?? null}
               followsAuthor={following[devbit.author.username]}

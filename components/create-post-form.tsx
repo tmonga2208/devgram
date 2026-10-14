@@ -6,7 +6,8 @@ import { useRouter } from "next/navigation"
 import { Clapperboard, Code, ImageIcon, VideoIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Tabs, TabsContent, TabsList, TabsTrigger, scrollableTabsList } from "@/components/ui/tabs"
+import { cn } from "@/lib/utils"
 import { Textarea } from "@/components/ui/textarea"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -140,7 +141,7 @@ export function CreatePostForm({ initialTab }: { initialTab?: string }) {
               }}
               className="w-full"
             >
-              <TabsList className="grid w-full grid-cols-4">
+              <TabsList className={cn(scrollableTabsList, "md:grid md:grid-cols-4")}>
                 <TabsTrigger value="image" className="flex items-center gap-2">
                   <ImageIcon className="h-4 w-4" />
                   Image
