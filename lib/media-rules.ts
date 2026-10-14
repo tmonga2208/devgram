@@ -37,22 +37,31 @@ export function photoPath(purpose: PhotoPurpose, userId: string, contentType: st
   return `${photoFolder(purpose, userId)}${id}.${EXTENSIONS[contentType]}`
 }
 
-// Whether the URL is a Blob file in the user's folder for that purpose. Only
-// those files are deleted on the user's behalf, so a post that borrows
-// someone else's uploaded photo cannot be used to delete it.
-export function ownsPhotoUrl(url: unknown, purpose: PhotoPurpose, userId: string): boolean {
-  if (typeof url !== "string") return false
+// A file name photoPath makes: a UUID and one of the photo extensions.
+const UPLOADED_NAME = new RegExp(
+  `^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\.(${Object.values(EXTENSIONS).join("|")})$`,
+)
+
+// The plain URL of a photo this app uploaded to the user's folder for that
+// purpose, or null for anything else. Only those files are deleted on the
+// user's behalf, so neither a post that borrows someone else's uploaded photo
+// nor a URL made to look like it is in the user's folder can delete another
+// file.
+export function ownPhotoUrl(url: unknown, purpose: PhotoPurpose, userId: string): string | null {
+  if (typeof url !== "string") return null
+  let parsed: URL
   try {
-    const { protocol, hostname, pathname } = new URL(url)
-    return (
-      protocol === "https:" &&
-      hostname.endsWith(".public.blob.vercel-storage.com") &&
-      pathname.startsWith(`/${photoFolder(purpose, userId)}`) &&
-      pathname.length > photoFolder(purpose, userId).length + 1
-    )
+    parsed = new URL(url)
   } catch {
-    return false
+    return null
   }
+  const folder = `/${photoFolder(purpose, userId)}`
+  const owned =
+    parsed.protocol === "https:" &&
+    parsed.hostname.endsWith(".public.blob.vercel-storage.com") &&
+    parsed.pathname.startsWith(folder) &&
+    UPLOADED_NAME.test(parsed.pathname.slice(folder.length))
+  return owned ? `${parsed.origin}${parsed.pathname}` : null
 }
 
 // The size to redraw a photo at before upload, or null to upload it as it is.

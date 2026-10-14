@@ -5,7 +5,7 @@ import {
   VIDEO_TOO_LONG,
   isPhotoPurpose,
   isPhotoType,
-  ownsPhotoUrl,
+  ownPhotoUrl,
   photoPath,
   photoTargetSize,
   videoAssetProblem,
@@ -14,6 +14,8 @@ import {
 const USER = "64b7f0c2a1b2c3d4e5f60718"
 const OTHER = "64b7f0c2a1b2c3d4e5f60719"
 const HOST = "https://abc123.public.blob.vercel-storage.com"
+// File names are UUIDs, as crypto.randomUUID() makes them.
+const ID = "0f8fad5b-d9cb-469f-a165-70867728950e"
 
 test("accepts the four photo types and nothing else", () => {
   for (const type of ["image/jpeg", "image/png", "image/webp", "image/gif"]) assert.equal(isPhotoType(type), true)
@@ -33,15 +35,26 @@ test("puts photos in the user's folder for the purpose", () => {
 })
 
 test("owns only Blob URLs inside the user's own folder", () => {
-  assert.equal(ownsPhotoUrl(`${HOST}/posts/${USER}/a.jpg`, "post", USER), true)
-  assert.equal(ownsPhotoUrl(`${HOST}/avatars/${USER}/a.jpg`, "avatar", USER), true)
-  assert.equal(ownsPhotoUrl(`${HOST}/posts/${OTHER}/a.jpg`, "post", USER), false)
-  assert.equal(ownsPhotoUrl(`${HOST}/avatars/${USER}/a.jpg`, "post", USER), false)
-  assert.equal(ownsPhotoUrl(`https://example.com/posts/${USER}/a.jpg`, "post", USER), false)
-  assert.equal(ownsPhotoUrl(`http://abc123.public.blob.vercel-storage.com/posts/${USER}/a.jpg`, "post", USER), false)
-  assert.equal(ownsPhotoUrl(`${HOST}/posts/${USER}`, "post", USER), false)
-  assert.equal(ownsPhotoUrl("/placeholder.svg", "avatar", USER), false)
-  assert.equal(ownsPhotoUrl(undefined, "avatar", USER), false)
+  assert.equal(ownPhotoUrl(`${HOST}/posts/${USER}/${ID}.jpg`, "post", USER), `${HOST}/posts/${USER}/${ID}.jpg`)
+  assert.equal(ownPhotoUrl(`${HOST}/avatars/${USER}/${ID}.png`, "avatar", USER), `${HOST}/avatars/${USER}/${ID}.png`)
+  assert.equal(ownPhotoUrl(`${HOST}/posts/${OTHER}/${ID}.jpg`, "post", USER), null)
+  assert.equal(ownPhotoUrl(`${HOST}/avatars/${USER}/${ID}.jpg`, "post", USER), null)
+  assert.equal(ownPhotoUrl(`https://example.com/posts/${USER}/${ID}.jpg`, "post", USER), null)
+  assert.equal(ownPhotoUrl(`http://abc123.public.blob.vercel-storage.com/posts/${USER}/${ID}.jpg`, "post", USER), null)
+  assert.equal(ownPhotoUrl(`${HOST}/posts/${USER}`, "post", USER), null)
+  assert.equal(ownPhotoUrl("/placeholder.svg", "avatar", USER), null)
+  assert.equal(ownPhotoUrl(undefined, "avatar", USER), null)
+})
+
+test("refuses URLs that only look like they are in the user's folder", () => {
+  // URL parsing leaves %2F alone, so this climbs into OTHER's folder once decoded.
+  assert.equal(ownPhotoUrl(`${HOST}/posts/${USER}/..%2F${OTHER}%2F${ID}.jpg`, "post", USER), null)
+  assert.equal(ownPhotoUrl(`${HOST}/posts/${USER}/notes.txt`, "post", USER), null)
+})
+
+test("gives back the plain URL to delete, without a query or a login part", () => {
+  const plain = `${HOST}/posts/${USER}/${ID}.webp`
+  assert.equal(ownPhotoUrl(`https://me@abc123.public.blob.vercel-storage.com/posts/${USER}/${ID}.webp?download=1#x`, "post", USER), plain)
 })
 
 test("shrinks photos to 2048px on the longer side", () => {

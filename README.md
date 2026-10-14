@@ -62,7 +62,7 @@ Open http://localhost:3000 and register an account.
 | `npm run build` | production build |
 | `npm run lint` | ESLint |
 | `npm run typecheck` | TypeScript, no emit |
-| `npm run test:unit` | unit tests for the upload rules |
+| `npm run test:unit` | unit tests for the upload rules and photo deletes |
 | `npm run smoke` | end-to-end API test against the running dev server |
 | `npm run mobile-check` | layout check of every page at phone width, in headless Chrome |
 
