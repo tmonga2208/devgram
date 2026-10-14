@@ -1,6 +1,8 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 import {
+  DEVBIT_LENGTH,
+  DEVBIT_TOO_LONG,
   MAX_VIDEO_SECONDS,
   VIDEO_TOO_LONG,
   isPhotoPurpose,
@@ -96,4 +98,12 @@ test("refuses someone else's, unfinished, failed, long and unplayable videos", (
   assert.deepEqual(videoAssetProblem({ ...ready, duration: MAX_VIDEO_SECONDS + 0.5 }, USER), { status: 400, message: VIDEO_TOO_LONG })
   assert.equal(videoAssetProblem({ ...ready, playback_ids: [{ id: "p", policy: "signed" }] }, USER)?.status, 400)
   assert.equal(videoAssetProblem({ ...ready, playback_ids: undefined }, USER)?.status, 400)
+})
+
+test("holds DevBits to 90 seconds, and video posts to 2 minutes", () => {
+  const ready = { status: "ready", passthrough: USER, playback_ids: [{ id: "p", policy: "public" }], tracks: [{ type: "video" }] }
+  assert.equal(videoAssetProblem({ ...ready, duration: 90 }, USER, DEVBIT_LENGTH), null)
+  assert.deepEqual(videoAssetProblem({ ...ready, duration: 90.5 }, USER, DEVBIT_LENGTH), { status: 400, message: DEVBIT_TOO_LONG })
+  assert.equal(DEVBIT_TOO_LONG, "DevBits can be at most 90 seconds long")
+  assert.equal(videoAssetProblem({ ...ready, duration: 100 }, USER), null)
 })
