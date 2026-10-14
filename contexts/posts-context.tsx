@@ -27,11 +27,20 @@ interface PostsContextType {
 
 const PostsContext = createContext<PostsContextType | undefined>(undefined);
 
-// Parses a successful response, or throws an Error with the server's message.
+// A request the server refused, with its message and HTTP status.
+export class RequestError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.status = status;
+  }
+}
+
+// Parses a successful response, or throws a RequestError with the server's message.
 async function parseOrThrow<T>(response: Response, fallback: string): Promise<T> {
   const data = await response.json().catch(() => null);
   if (!response.ok || data === null) {
-    throw new Error(data?.error || fallback);
+    throw new RequestError(data?.error || fallback, response.status);
   }
   return data as T;
 }

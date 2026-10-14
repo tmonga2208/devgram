@@ -407,6 +407,8 @@ async function main() {
         "signed out: a DevBit link opens and plays",
         await page.waitFor(`(() => { const v = document.querySelector("[data-devbit] mux-video"); return Boolean(v && !v.paused) })()`, { timeout: 30000 }),
       )
+      await page.evaluate(click(`document.querySelector('[data-devbit] button[aria-label="Like"]')`))
+      check("signed out: liking a DevBit asks you to log in", await page.waitFor(`location.pathname === "/login"`, { timeout: 5000 }))
     }
 
     await signIn(page, a)
@@ -603,6 +605,77 @@ async function main() {
       )
       await page.evaluate(click(`document.querySelector("[data-devbit] [data-devbit-video]")`))
       check("devbits: tapping the video pauses it", await page.waitFor(`${videos}[0]?.paused === true`, { timeout: 5000 }))
+
+      const slideOf = (id) => `document.querySelector('[data-devbit="${id}"]')`
+      await open(page, `/devbits/${devbits.one}`)
+      await page.evaluate(click(`${slideOf(devbits.one)}.querySelector('button[aria-label="Like"]')`))
+      check(
+        "devbits: liking shows the new count",
+        await page.waitFor(`${slideOf(devbits.one)}.querySelector('button[aria-label="Unlike"]')?.textContent.trim() === "1"`, { timeout: 5000 }),
+      )
+      check("devbits: your own DevBit has no Follow button", !(await page.evaluate(`Boolean(${slideOf(devbits.one)}.querySelector("[data-follow]"))`)))
+
+      const scrolledBefore = (await page.evaluate(DEVBITS_STATE)).scrollTop
+      await page.evaluate(click(`${slideOf(devbits.one)}.querySelector('button[aria-label="Comments"]')`))
+      check("devbits: comments open in a panel", await page.waitFor(`document.querySelector('[role="dialog"]')?.textContent.includes("Comments")`, { timeout: 5000 }))
+      const comment = `bit comment ${run}`
+      await page.type('[role="dialog"] input[placeholder="Add a comment..."]', comment)
+      await page.evaluate(click(`document.querySelector('[role="dialog"] button[aria-label="Post comment"]')`))
+      check(
+        "devbits: a comment can be added from the panel",
+        await page.waitFor(`document.querySelector('[role="dialog"]')?.textContent.includes(${JSON.stringify(comment)})`, { timeout: 5000 }),
+      )
+      await page.evaluate(click(`[...document.querySelectorAll('[role="dialog"] button')].find((button) => button.textContent.trim() === "Close")`))
+      await page.waitFor(`!document.querySelector('[role="dialog"]')`, { timeout: 5000 })
+      const afterComments = await page.evaluate(DEVBITS_STATE)
+      const commentCount = await page.evaluate(`${slideOf(devbits.one)}.querySelector('button[aria-label="Comments"]')?.textContent.trim()`)
+      check(
+        "devbits: closing comments leaves the DevBit in place, with its new count",
+        afterComments.scrollTop === scrolledBefore && commentCount === "1",
+        `scrolled ${scrolledBefore}px before and ${afterComments.scrollTop}px after; count ${commentCount}`,
+      )
+
+      const link = `${BASE}/devbits/${devbits.one}`
+      await page.evaluate(`navigator.share = async (data) => { window.__shared = data.url }`)
+      await page.evaluate(click(`${slideOf(devbits.one)}.querySelector('button[aria-label="Share"]')`))
+      check("devbits: share hands the DevBit's link to the share sheet", await page.waitFor(`window.__shared === ${JSON.stringify(link)}`, { timeout: 5000 }))
+      await page.evaluate(`navigator.share = undefined; navigator.clipboard.writeText = async (text) => { window.__copied = text }`)
+      await page.evaluate(click(`${slideOf(devbits.one)}.querySelector('button[aria-label="Share"]')`))
+      check(
+        "devbits: without a share sheet, share copies the link",
+        await page.waitFor(`window.__copied === ${JSON.stringify(link)} && document.body.textContent.includes("Link copied")`, { timeout: 5000 }),
+      )
+
+      await open(page, `/devbits/${devbits.two}`)
+      check("devbits: someone else's DevBit offers Follow", await page.waitFor(`Boolean(${slideOf(devbits.two)}?.querySelector("[data-follow]"))`, { timeout: 10000 }))
+      await page.evaluate(click(`${slideOf(devbits.two)}.querySelector("[data-follow]")`))
+      check("devbits: Follow goes away once you follow", await page.waitFor(`!${slideOf(devbits.two)}.querySelector("[data-follow]")`, { timeout: 5000 }))
+
+      await api("DELETE", `/api/posts/${devbits.two}`, b.token)
+      await page.evaluate(click(`${slideOf(devbits.two)}.querySelector('button[aria-label="Like"]')`))
+      check(
+        "devbits: liking a DevBit deleted while you watch says it was removed",
+        await page.waitFor(`document.body.textContent.includes("This DevBit was removed")`, { timeout: 5000 }),
+      )
+      check("devbits: and it leaves the feed", await page.waitFor(`!${slideOf(devbits.two)}`, { timeout: 5000 }))
+
+      await open(page, `/devbits/${devbits.three}`)
+      await page.evaluate(click(`${slideOf(devbits.three)}.querySelector('button[aria-label="More"]')`))
+      await page.waitFor(`document.querySelector('[role="dialog"]')?.textContent.includes("Delete this DevBit?")`, { timeout: 5000 })
+      await page.evaluate(click(`[...document.querySelectorAll('[role="dialog"] button')].find((button) => button.textContent.trim() === "Delete")`))
+      check("devbits: deleting your own DevBit takes it out of the feed", await page.waitFor(`!${slideOf(devbits.three)}`, { timeout: 10000 }))
+      check("devbits: and deletes it", (await fetch(`${BASE}/api/posts/${devbits.three}`)).status === 404)
+
+      await open(page, `/p/${devbits.one}`)
+      check(
+        "devbits: a post link to a DevBit opens it in the DevBits screen",
+        await page.waitFor(`location.pathname === ${JSON.stringify(`/devbits/${devbits.one}`)}`, { timeout: 10000 }),
+      )
+      await open(page, `/devbits/${postId}`)
+      check(
+        "devbits: a DevBits link to a regular post opens the post page",
+        await page.waitFor(`location.pathname === ${JSON.stringify(`/p/${postId}`)}`, { timeout: 10000 }),
+      )
     }
 
     console.log("\n[photo upload]")

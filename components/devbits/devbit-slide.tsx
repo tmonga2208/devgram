@@ -1,8 +1,8 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useState, type ReactNode } from "react"
 import Link from "next/link"
-import { Play } from "lucide-react"
+import { Heart, MessageCircle, MoreHorizontal, Play, Share2 } from "lucide-react"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { DevBitVideo } from "@/components/devbits/devbit-video"
 import { cn } from "@/lib/utils"
@@ -15,6 +15,15 @@ interface DevBitSlideProps {
   // Next in line: it loads its video's metadata ahead of time.
   next: boolean
   muted: boolean
+  // The signed-in viewer's username, or null.
+  viewer: string | null
+  // Whether the viewer follows the author, once known.
+  followsAuthor: boolean | undefined
+  onLike: () => void
+  onFollow: () => void
+  onComments: () => void
+  onShare: () => void
+  onDelete: () => void
 }
 
 // Vertical clips fill the screen; landscape ones are shown whole.
@@ -23,8 +32,48 @@ function isVertical(aspectRatio?: string) {
   return match ? Number(match[2]) > Number(match[1]) : true
 }
 
-// One DevBit: its video, a tap to pause, and who posted it with the caption.
-export function DevBitSlide({ devbit, active, next, muted }: DevBitSlideProps) {
+function ActionButton({
+  label,
+  pressed,
+  count,
+  onClick,
+  children,
+}: {
+  label: string
+  pressed?: boolean
+  count?: number
+  onClick: () => void
+  children: ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      aria-pressed={pressed}
+      onClick={onClick}
+      className="flex min-h-11 min-w-11 flex-col items-center justify-center gap-1 text-xs font-medium drop-shadow"
+    >
+      {children}
+      {count !== undefined && <span>{count}</span>}
+    </button>
+  )
+}
+
+// One DevBit: its video, a tap to pause, who posted it with the caption, and
+// like, comments, share and (on your own) delete.
+export function DevBitSlide({
+  devbit,
+  active,
+  next,
+  muted,
+  viewer,
+  followsAuthor,
+  onLike,
+  onFollow,
+  onComments,
+  onShare,
+  onDelete,
+}: DevBitSlideProps) {
   const [pausedByTap, setPausedByTap] = useState(false)
   const [blocked, setBlocked] = useState(false)
   const [failed, setFailed] = useState(false)
@@ -40,6 +89,12 @@ export function DevBitSlide({ devbit, active, next, muted }: DevBitSlideProps) {
 
   const video = devbit.muxVideo
   if (!video) return null
+
+  const own = viewer === devbit.author.username
+  const liked = viewer !== null && (devbit.likedBy || []).includes(viewer)
+  // Signed out, Follow leads to the login page; signed in, it shows once the
+  // viewer is known not to follow the author.
+  const showFollow = !own && (viewer === null || followsAuthor === false)
 
   return (
     <section
@@ -79,14 +134,27 @@ export function DevBitSlide({ devbit, active, next, muted }: DevBitSlideProps) {
             Couldn&apos;t play this one
           </p>
         )}
+
         <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-4 pr-20 text-white">
-          <Link href={`/profile/${devbit.author.username}`} className="pointer-events-auto flex min-w-0 items-center gap-2">
-            <Avatar className="h-8 w-8">
-              <AvatarImage src={devbit.author.avatar} alt={devbit.author.username} />
-              <AvatarFallback>{devbit.author.username[0].toUpperCase()}</AvatarFallback>
-            </Avatar>
-            <span className="truncate font-medium">{devbit.author.username}</span>
-          </Link>
+          <div className="flex min-w-0 items-center gap-2">
+            <Link href={`/profile/${devbit.author.username}`} className="pointer-events-auto flex min-w-0 items-center gap-2">
+              <Avatar className="h-8 w-8">
+                <AvatarImage src={devbit.author.avatar} alt={devbit.author.username} />
+                <AvatarFallback>{devbit.author.username[0].toUpperCase()}</AvatarFallback>
+              </Avatar>
+              <span className="truncate font-medium">{devbit.author.username}</span>
+            </Link>
+            {showFollow && (
+              <button
+                type="button"
+                data-follow
+                onClick={onFollow}
+                className="pointer-events-auto shrink-0 rounded-md border border-white/80 px-3 py-1 text-sm font-medium"
+              >
+                Follow
+              </button>
+            )}
+          </div>
           <button
             type="button"
             onClick={() => setCaptionOpen((open) => !open)}
@@ -94,6 +162,23 @@ export function DevBitSlide({ devbit, active, next, muted }: DevBitSlideProps) {
           >
             {devbit.caption}
           </button>
+        </div>
+
+        <div className="absolute bottom-24 right-2 flex flex-col items-center gap-4 text-white">
+          <ActionButton label={liked ? "Unlike" : "Like"} pressed={liked} count={devbit.likes || 0} onClick={onLike}>
+            <Heart className={cn("h-7 w-7", liked && "fill-red-500 text-red-500")} />
+          </ActionButton>
+          <ActionButton label="Comments" count={(devbit.comments || []).length} onClick={onComments}>
+            <MessageCircle className="h-7 w-7" />
+          </ActionButton>
+          <ActionButton label="Share" onClick={onShare}>
+            <Share2 className="h-7 w-7" />
+          </ActionButton>
+          {own && (
+            <ActionButton label="More" onClick={onDelete}>
+              <MoreHorizontal className="h-7 w-7" />
+            </ActionButton>
+          )}
         </div>
       </div>
     </section>

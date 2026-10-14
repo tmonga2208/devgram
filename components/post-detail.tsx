@@ -3,7 +3,8 @@
 import { useState, useEffect } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { Heart, MessageCircle, Bookmark, Code, Send } from "lucide-react"
+import { Heart, MessageCircle, Bookmark, Code } from "lucide-react"
+import { Comments } from "@/components/comments"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { CodeBlock } from "@/components/code-block"
 import { VideoPlayer } from "./video-player"
@@ -27,13 +28,11 @@ function messageOf(error: unknown, fallback: string) {
 
 export function PostDetail({ id }: PostDetailProps) {
   const { user, authFetch, loading: authLoading } = useAuth()
-  const { likePost, savePost, addComment } = usePosts()
+  const { likePost, savePost } = usePosts()
   const router = useRouter()
   const [post, setPost] = useState<PostType | null>(null)
   const [status, setStatus] = useState<Status>("loading")
   const [similarPosts, setSimilarPosts] = useState<PostType[]>([])
-  const [comment, setComment] = useState("")
-  const [isSubmitting, setIsSubmitting] = useState(false)
 
   useEffect(() => {
     // Wait for the stored session, so the response includes the viewer's own save.
@@ -55,6 +54,11 @@ export function PostDetail({ id }: PostDetailProps) {
         }
         const data = (await response.json()) as PostType
         if (cancelled) return
+        // DevBits play in their own screen.
+        if (data.kind === "devbit") {
+          router.replace(`/devbits/${id}`)
+          return
+        }
         setPost(data)
         setStatus("ready")
 
@@ -69,7 +73,7 @@ export function PostDetail({ id }: PostDetailProps) {
     return () => {
       cancelled = true
     }
-  }, [id, authFetch, authLoading])
+  }, [id, authFetch, authLoading, router])
 
   if (status === "loading") {
     return (
@@ -117,22 +121,6 @@ export function PostDetail({ id }: PostDetailProps) {
       setPost(await savePost(post._id))
     } catch (error) {
       toast.error(messageOf(error, "Failed to update save"))
-    }
-  }
-
-  const handleComment = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!comment.trim() || !user) return
-
-    setIsSubmitting(true)
-    try {
-      const newComment = await addComment(post._id, comment)
-      setPost((current) => (current ? { ...current, comments: [...(current.comments || []), newComment] } : current))
-      setComment("")
-    } catch (error) {
-      toast.error(messageOf(error, "Failed to add comment"))
-    } finally {
-      setIsSubmitting(false)
     }
   }
 
@@ -188,50 +176,13 @@ export function PostDetail({ id }: PostDetailProps) {
               {formatDistanceToNow(new Date(post.createdAt), { addSuffix: true })}
             </p>
 
-            <div className="space-y-4">
-              {comments.map((item) => (
-                <div key={item._id} className="flex gap-2">
-                  <Avatar className="h-8 w-8">
-                    <AvatarImage src={item.avatar} alt={item.username} />
-                    <AvatarFallback>{item.username[0].toUpperCase()}</AvatarFallback>
-                  </Avatar>
-                  <div className="min-w-0">
-                    <p className="wrap-anywhere">
-                      <span className="font-medium mr-2">{item.username}</span>
-                      {item.text}
-                    </p>
-                    <p className="text-sm text-muted-foreground">
-                      {formatDistanceToNow(new Date(item.createdAt), { addSuffix: true })}
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {user ? (
-              <form onSubmit={handleComment} className="flex gap-2">
-                <input
-                  type="text"
-                  value={comment}
-                  onChange={(e) => setComment(e.target.value)}
-                  placeholder="Add a comment..."
-                  className="flex-1 rounded-full border border-input bg-background px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  disabled={isSubmitting}
-                />
-                <button
-                  type="submit"
-                  disabled={!comment.trim() || isSubmitting}
-                  className="rounded-full bg-blue-500 p-2 text-white disabled:opacity-50"
-                  aria-label="Post comment"
-                >
-                  <Send className="h-5 w-5" />
-                </button>
-              </form>
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                <Link href="/login" className="text-blue-500 hover:underline">Log in</Link> to comment.
-              </p>
-            )}
+            <Comments
+              postId={post._id}
+              comments={comments}
+              onAdded={(added) =>
+                setPost((current) => (current ? { ...current, comments: [...(current.comments || []), added] } : current))
+              }
+            />
           </div>
         </div>
       </div>
