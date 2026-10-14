@@ -7,8 +7,15 @@ import { preparePhoto } from "@/lib/image-prepare"
 import { UPLOAD_FAILED, uploadPhoto } from "@/lib/upload-client"
 
 // "Upload photo" for the profile picture: uploads the chosen file and hands
-// back its URL; saving the profile stores it.
-export function AvatarUpload({ onUploaded }: { onUploaded: (url: string) => void }) {
+// back its URL; saving the profile stores it. onBusyChange tells the form when
+// an upload starts and ends, so it can hold the save until the URL is in.
+export function AvatarUpload({
+  onUploaded,
+  onBusyChange,
+}: {
+  onUploaded: (url: string) => void
+  onBusyChange: (busy: boolean) => void
+}) {
   const { authFetch } = useAuth()
   const input = useRef<HTMLInputElement>(null)
   const [progress, setProgress] = useState<number | null>(null)
@@ -17,12 +24,14 @@ export function AvatarUpload({ onUploaded }: { onUploaded: (url: string) => void
   const upload = async (file: File) => {
     setError(null)
     setProgress(0)
+    onBusyChange(true)
     try {
       onUploaded(await uploadPhoto(await preparePhoto(file), "avatar", authFetch, { onProgress: setProgress }))
     } catch (err) {
       setError(err instanceof Error ? err.message : UPLOAD_FAILED)
     } finally {
       setProgress(null)
+      onBusyChange(false)
     }
   }
 

@@ -504,15 +504,37 @@ async function main() {
       check("create: the post appears in the feed with the uploaded photo", posted && stored !== null, JSON.stringify(stored))
       check("create: a 3000px photo is stored at most 2048px wide", stored !== null && stored.width > 0 && stored.width <= 2048, JSON.stringify(stored))
 
+      // Every uploaded photo is downloaded from Blob's monthly allowance, so
+      // the lists fetch them only as they come near the screen.
+      for (const [label, route] of [["feed", "/"], ["explore", "/explore"], ["profile", `/profile/${names.a}`]]) {
+        await open(page, route)
+        const loading = await page.evaluate(
+          `[...document.querySelectorAll('main img[src*=".public.blob.vercel-storage.com/posts/"]')].map((img) => img.loading)`,
+        )
+        check(
+          `${label}: uploaded photos load only when scrolled near`,
+          loading.length > 0 && loading.every((value) => value === "lazy"),
+          JSON.stringify(loading),
+        )
+      }
+
       console.log("\n[profile picture upload]")
       await open(page, "/settings")
       const avatarButton = await page.evaluate(buttonHeight("Upload photo"))
       check(`settings: the Upload photo button is at least ${TAP_TARGET}px tall`, avatarButton >= TAP_TARGET, `height ${avatarButton}px`)
+      const saveDisabled = `[...document.querySelectorAll("main button")].find((b) => b.textContent.trim() === "Save Profile")?.disabled`
+      // A slow connection keeps the upload going long enough to try saving.
+      await page.cdp("Network.enable")
+      await page.cdp("Network.emulateNetworkConditions", { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: 16 * 1024 })
       await page.setInputFiles(photoInput, [fixture("wide-3000x1500.png")])
+      check("settings: Save Profile waits while the profile picture uploads", await page.waitFor(`${saveDisabled} === true`, { timeout: 10000 }))
+      await page.cdp("Network.emulateNetworkConditions", { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 })
+      await page.cdp("Network.disable")
       check(
         "settings: an uploaded profile picture fills the picture field",
         await page.waitFor(`document.querySelector("#avatar")?.value.includes(".public.blob.vercel-storage.com/avatars/")`, { timeout: 30000 }),
       )
+      check("settings: Save Profile comes back once the upload finishes", await page.waitFor(`${saveDisabled} === false`, { timeout: 5000 }))
       await page.evaluate(click(`[...document.querySelectorAll("main button")].find((b) => b.textContent.trim() === "Save Profile")`))
       await sleep(1500)
       await open(page, `/profile/${names.a}`)

@@ -144,6 +144,7 @@ export function SearchPage() {
                                   <img
                                     src={post.image}
                                     alt="Post image"
+                                    loading="lazy"
                                     className="h-full w-full object-cover"
                                   />
                                 </div>
@@ -233,6 +234,7 @@ export function SearchPage() {
                             <img
                               src={post.image}
                               alt="Post image"
+                              loading="lazy"
                               className="h-full w-full object-cover"
                             />
                           </div>

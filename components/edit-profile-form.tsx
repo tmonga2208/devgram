@@ -14,6 +14,8 @@ import toast from "react-hot-toast"
 export function EditProfileForm() {
   const { user, updateProfile } = useAuth()
   const [isSubmitting, setIsSubmitting] = useState(false)
+  // Saving mid-upload would store the old picture, so Save waits for it.
+  const [avatarUploading, setAvatarUploading] = useState(false)
   const [formData, setFormData] = useState({ fullName: "", website: "", bio: "", avatar: "" })
 
   const fullName = user?.fullName || ""
@@ -69,7 +71,10 @@ export function EditProfileForm() {
                 />
               </div>
               <p className="text-sm font-medium">{user.username}</p>
-              <AvatarUpload onUploaded={(url) => setFormData((prev) => ({ ...prev, avatar: url }))} />
+              <AvatarUpload
+                onUploaded={(url) => setFormData((prev) => ({ ...prev, avatar: url }))}
+                onBusyChange={setAvatarUploading}
+              />
             </div>
 
             <div className="space-y-2">
@@ -113,7 +118,7 @@ export function EditProfileForm() {
             </div>
           </CardContent>
           <CardFooter>
-            <Button type="submit" disabled={isSubmitting} className="w-full">
+            <Button type="submit" disabled={isSubmitting || avatarUploading} className="w-full">
               {isSubmitting ? "Saving..." : "Save Profile"}
             </Button>
           </CardFooter>

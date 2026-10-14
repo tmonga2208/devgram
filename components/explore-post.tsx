@@ -14,6 +14,7 @@ export function ExplorePost({ post }: ExplorePostProps) {
         <img
           src={post.image}
           alt="Post thumbnail"
+          loading="lazy"
           className="h-full w-full object-cover transition-transform group-hover:scale-105"
         />
       ) : (

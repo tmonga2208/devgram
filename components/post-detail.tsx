@@ -245,7 +245,7 @@ export function PostDetail({ id }: PostDetailProps) {
               >
                 {similarPost.image ? (
                   // eslint-disable-next-line @next/next/no-img-element -- user-supplied URL, any host
-                  <img src={similarPost.image} alt={similarPost.caption} className="h-full w-full object-cover" />
+                  <img src={similarPost.image} alt={similarPost.caption} loading="lazy" className="h-full w-full object-cover" />
                 ) : similarPost.code ? (
                   <div className="flex h-full w-full items-center justify-center bg-zinc-950 text-zinc-50">
                     <Code className="h-8 w-8" />

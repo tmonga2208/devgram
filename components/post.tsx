@@ -123,7 +123,7 @@ export function Post({ post }: PostProps) {
       <div className="relative">
         {post.image ? (
           // eslint-disable-next-line @next/next/no-img-element -- user-supplied URL, any host
-          <img src={post.image} alt={post.caption} className="w-full object-cover" />
+          <img src={post.image} alt={post.caption} loading="lazy" className="w-full object-cover" />
         ) : post.video ? (
           <VideoPlayer url={post.video} />
         ) : post.code ? (
