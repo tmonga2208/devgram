@@ -120,6 +120,16 @@ async function waitForUpload(user, uploadId) {
   return { status: "still waiting after two minutes" }
 }
 
+async function muxAssetExists(assetId) {
+  try {
+    await new Mux().video.assets.retrieve(assetId)
+    return true
+  } catch (error) {
+    if (error instanceof NotFoundError) return false
+    throw error
+  }
+}
+
 const sections = {
   async health() {
     const res = await api("GET", "/api/health")
@@ -710,6 +720,34 @@ const sections = {
     check("a file that is not a video ends as failed", failed.status === "failed", JSON.stringify(failed))
 
     state.video = { uploadId, playbackId: ready.playbackId, junkUploadId: junk.data.uploadId }
+
+    const foreign = await api("POST", "/api/posts", { token: b.token, body: { caption: `taken ${run}`, videoUploadId: uploadId } })
+    check("posting someone else's video is 404", foreign.status === 404, `status ${foreign.status}`)
+    const both = await api("POST", "/api/posts", {
+      token: a.token,
+      body: { caption: `both ${run}`, videoUploadId: uploadId, video: "https://youtu.be/dQw4w9WgXcQ" },
+    })
+    check("an uploaded video plus a video link is 400", both.status === 400, `status ${both.status}`)
+    const pending = await api("POST", "/api/uploads/video", { token: a.token })
+    const early = await api("POST", "/api/posts", { token: a.token, body: { caption: `early ${run}`, videoUploadId: pending.data?.uploadId } })
+    check("posting a video that has not been uploaded is 409", early.status === 409, `status ${early.status}`)
+    await new Mux().video.uploads.cancel(pending.data.uploadId)
+    const junkPost = await api("POST", "/api/posts", { token: a.token, body: { caption: `junk ${run}`, videoUploadId: junk.data.uploadId } })
+    check("posting a video Mux could not process is 400", junkPost.status === 400, `status ${junkPost.status}`)
+
+    const videoPost = await api("POST", "/api/posts", { token: a.token, body: { caption: `video post ${run}`, videoUploadId: uploadId } })
+    check(
+      "posting a ready video is 201 with its playback id and shape",
+      videoPost.status === 201 && videoPost.data?.muxVideo?.playbackId === ready.playbackId && videoPost.data?.muxVideo?.aspectRatio === "9:16",
+      `status ${videoPost.status} ${videoPost.text.slice(0, 160)}`,
+    )
+    const again = await api("POST", "/api/posts", { token: a.token, body: { caption: `again ${run}`, videoUploadId: uploadId } })
+    check("the same video cannot be posted twice", again.status === 409, `status ${again.status}`)
+    const listed = await api("GET", `/api/posts/${videoPost.data?._id}`)
+    check("the post page returns the video", listed.data?.muxVideo?.playbackId === ready.playbackId)
+    const assetId = videoPost.data?.muxVideo?.assetId
+    await api("DELETE", `/api/posts/${videoPost.data?._id}`, { token: a.token })
+    check("deleting the post deletes its video from Mux", typeof assetId === "string" && !(await muxAssetExists(assetId)))
   },
 }
 

@@ -47,6 +47,12 @@ export interface PostType {
   video?: string
   code?: string
   language?: string
+  muxVideo?: {
+    assetId: string
+    playbackId: string
+    aspectRatio?: string
+    duration?: number
+  }
   author: {
     username: string
     avatar: string

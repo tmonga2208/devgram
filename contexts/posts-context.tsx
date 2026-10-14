@@ -10,6 +10,7 @@ export interface NewPost {
   video?: string;
   code?: string;
   language?: string;
+  videoUploadId?: string;
 }
 
 interface PostsContextType {

@@ -5,6 +5,7 @@ import { getAuthUser, requireAuth } from '@/lib/auth';
 import { handleRouteError, isValidId, jsonError } from '@/lib/http';
 import { toPublicPost } from '@/lib/post-response';
 import { deleteOwnPhoto } from '@/lib/blob';
+import { deleteVideoAsset } from '@/lib/mux';
 
 type Context = { params: Promise<{ id: string }> };
 
@@ -42,6 +43,7 @@ export async function DELETE(req: Request, { params }: Context) {
     await post.deleteOne();
     // The post was its uploaded photo's only use; borrowed photos stay.
     await deleteOwnPhoto(post.image, 'post', auth.id);
+    if (post.muxVideo?.assetId) await deleteVideoAsset(post.muxVideo.assetId);
     return NextResponse.json({ message: 'Post deleted successfully' });
   } catch (error) {
     return handleRouteError(error, 'Delete post error', 'Failed to delete post');

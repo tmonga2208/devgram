@@ -18,6 +18,12 @@ export interface IPost extends mongoose.Document {
   video?: string;
   code?: string;
   language?: string;
+  muxVideo?: {
+    assetId: string;
+    playbackId: string;
+    aspectRatio?: string;
+    duration?: number;
+  };
   caption: string;
   likes: number;
   comments: IComment[];
@@ -79,6 +85,19 @@ const postSchema = new mongoose.Schema<IPost>(
     language: {
       type: String,
     },
+    // A video uploaded to Mux (lib/mux.ts). `video` holds a pasted link instead.
+    muxVideo: {
+      type: new mongoose.Schema(
+        {
+          assetId: { type: String, required: true },
+          playbackId: { type: String, required: true },
+          aspectRatio: String,
+          duration: Number,
+        },
+        { _id: false },
+      ),
+      required: false,
+    },
     caption: {
       type: String,
       required: true,
@@ -104,5 +123,7 @@ const postSchema = new mongoose.Schema<IPost>(
 
 postSchema.index({ 'author.username': 1 });
 postSchema.index({ likes: 1, createdAt: -1 });
+// One post per uploaded video, even when two requests race.
+postSchema.index({ 'muxVideo.assetId': 1 }, { unique: true, sparse: true });
 
 export default (mongoose.models.Post as mongoose.Model<IPost>) || mongoose.model<IPost>('Post', postSchema); 

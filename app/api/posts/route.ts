@@ -6,6 +6,8 @@ import { getAuthUser, requireAuth } from '@/lib/auth';
 import { LIMITS, handleRouteError, isHttpUrl, jsonError, readJson } from '@/lib/http';
 import { notifyMentions } from '@/lib/notifications';
 import { toPublicPost } from '@/lib/post-response';
+import { VIDEO_TOO_LONG, videoAssetProblem } from '@/lib/media-rules';
+import { deleteVideoAsset, findVideoUpload, publicPlaybackId } from '@/lib/mux';
 
 // Get all posts, newest first
 export async function GET(req: Request) {
@@ -54,11 +56,39 @@ export async function POST(req: Request) {
     if (video && video.length > LIMITS.url) return jsonError('Video URL is too long', 400);
     if (image && !isHttpUrl(image)) return jsonError('Image must be an http(s) URL', 400);
     if (video && !isHttpUrl(video)) return jsonError('Video must be an http(s) URL', 400);
+    const videoUploadId = optionalString(body.videoUploadId);
+    if (videoUploadId && video) return jsonError('Choose either an uploaded video or a video link', 400);
 
     await connectToDatabase();
 
     const author = await User.findOne({ username: auth.username }).select('username avatar').lean();
     if (!author) return jsonError('Authentication required', 401);
+
+    let muxVideo;
+    if (videoUploadId) {
+      const upload = await findVideoUpload(videoUploadId, auth.id);
+      if (!upload) return jsonError('Video upload not found', 404);
+      if (!upload.asset) {
+        return upload.status === 'failed'
+          ? jsonError('This video could not be processed', 400)
+          : jsonError('This video is still uploading', 409);
+      }
+      const problem = videoAssetProblem(upload.asset, auth.id);
+      if (problem) {
+        // A video over the limit can never be posted, so it is not kept.
+        if (problem.message === VIDEO_TOO_LONG) await deleteVideoAsset(upload.asset.id);
+        return jsonError(problem.message, problem.status);
+      }
+      if (await Post.exists({ 'muxVideo.assetId': upload.asset.id })) {
+        return jsonError('This video is already posted', 409);
+      }
+      muxVideo = {
+        assetId: upload.asset.id,
+        playbackId: publicPlaybackId(upload.asset) as string,
+        aspectRatio: upload.asset.aspect_ratio,
+        duration: upload.asset.duration,
+      };
+    }
 
     const post = await Post.create({
       author: {
@@ -68,6 +98,7 @@ export async function POST(req: Request) {
       caption,
       image,
       video,
+      muxVideo,
       code,
       language: code ? language : undefined,
     });
