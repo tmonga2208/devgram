@@ -1,0 +1,32 @@
+import { del } from "@vercel/blob"
+import { generateClientTokenFromReadWriteToken } from "@vercel/blob/client"
+import { MAX_PHOTO_BYTES, ownsPhotoUrl, photoPath, type PhotoPurpose } from "@/lib/media-rules"
+
+const TOKEN_LIFETIME_MS = 10 * 60 * 1000
+
+// A token that lets the browser upload one photo of this type, at most 10 MB,
+// to one new path in the user's folder, during the next 10 minutes. The
+// store's own read-write token never leaves the server.
+export async function issuePhotoUpload(purpose: PhotoPurpose, userId: string, contentType: string) {
+  const pathname = photoPath(purpose, userId, contentType, crypto.randomUUID())
+  const token = await generateClientTokenFromReadWriteToken({
+    pathname,
+    allowedContentTypes: [contentType],
+    maximumSizeInBytes: MAX_PHOTO_BYTES,
+    validUntil: Date.now() + TOKEN_LIFETIME_MS,
+    addRandomSuffix: false,
+  })
+  return { pathname, token }
+}
+
+// Deletes a photo the user uploaded for that purpose and leaves anything else
+// alone: links to other sites and other people's uploads. A failure is
+// logged, because the change that made the photo unused is already saved.
+export async function deleteOwnPhoto(url: unknown, purpose: PhotoPurpose, userId: string) {
+  if (!ownsPhotoUrl(url, purpose, userId)) return
+  try {
+    await del(url as string)
+  } catch (error) {
+    console.error("Could not delete photo", url, error)
+  }
+}

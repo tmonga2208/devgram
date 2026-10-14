@@ -3,6 +3,9 @@
 //        npm run smoke -- posts   (one or more named sections)
 // SMOKE_BASE_URL picks the server. SMOKE_DB names that server's database when
 // it is not the one in MONGODB_URI.
+import { readFile } from "node:fs/promises"
+import { BlobNotFoundError, head, list } from "@vercel/blob"
+import { put } from "@vercel/blob/client"
 import { assertSameDatabase, removeTestUsers } from "./lib/test-users.mjs"
 
 const BASE = process.env.SMOKE_BASE_URL || "http://localhost:3000"
@@ -70,6 +73,31 @@ async function ensureUsers() {
       throw new Error(`could not register ${names[key]}: ${res.status} ${res.text.slice(0, 200)}`)
     }
     state[key] = { token: res.data.token, user: res.data.user, password }
+  }
+}
+
+const PHOTO_FIXTURE = new URL("../public/icons/icon-192.png", import.meta.url)
+
+// Uploads the fixture PNG the way the browser does: a pass from the app, then
+// straight to Blob. Returns the photo's public URL.
+async function uploadTestPhoto(user, purpose) {
+  const png = await readFile(PHOTO_FIXTURE)
+  const pass = await api("POST", "/api/uploads/image", {
+    token: user.token,
+    body: { purpose, contentType: "image/png", size: png.length },
+  })
+  if (pass.status !== 200) throw new Error(`photo upload pass answered ${pass.status}`)
+  const blob = await put(pass.data.pathname, png, { access: "public", token: pass.data.token, contentType: "image/png" })
+  return blob.url
+}
+
+async function blobExists(url) {
+  try {
+    await head(url)
+    return true
+  } catch (error) {
+    if (error instanceof BlobNotFoundError) return false
+    throw error
   }
 }
 
@@ -545,6 +573,58 @@ const sections = {
     )
     const offline = await fetchRaw("/offline")
     check("offline page is served", offline.status === 200 && /offline/i.test(offline.text), `status ${offline.status}`)
+  },
+  async photos() {
+    if (!process.env.BLOB_READ_WRITE_TOKEN) {
+      console.log("  skip photos (BLOB_READ_WRITE_TOKEN is not set)")
+      return
+    }
+    await ensureUsers()
+    const { a } = state
+    const png = await readFile(PHOTO_FIXTURE)
+    const request = (changes = {}) => ({ purpose: "post", contentType: "image/png", size: png.length, ...changes })
+
+    const anon = await api("POST", "/api/uploads/image", { body: request() })
+    check("photo upload without token is 401", anon.status === 401, `status ${anon.status}`)
+    const heic = await api("POST", "/api/uploads/image", { token: a.token, body: request({ contentType: "image/heic" }) })
+    check("HEIC photo is 400", heic.status === 400, `status ${heic.status}`)
+    const purpose = await api("POST", "/api/uploads/image", { token: a.token, body: request({ purpose: "banner" }) })
+    check("unknown photo purpose is 400", purpose.status === 400, `status ${purpose.status}`)
+    const tooBig = await api("POST", "/api/uploads/image", { token: a.token, body: request({ size: 10 * 1024 * 1024 + 1 }) })
+    check("photo over 10 MB is 400", tooBig.status === 400, `status ${tooBig.status}`)
+    const noSize = await api("POST", "/api/uploads/image", { token: a.token, body: request({ size: "big" }) })
+    check("photo size that is not a number is 400", noSize.status === 400, `status ${noSize.status}`)
+
+    const pass = await api("POST", "/api/uploads/image", { token: a.token, body: request() })
+    check(
+      "photo upload pass points into the caller's post folder",
+      pass.status === 200 &&
+        typeof pass.data?.token === "string" &&
+        pass.data?.pathname?.startsWith(`posts/${a.user.id}/`) &&
+        pass.data.pathname.endsWith(".png"),
+      `status ${pass.status} ${pass.text.slice(0, 120)}`,
+    )
+    const avatarPass = await api("POST", "/api/uploads/image", { token: a.token, body: request({ purpose: "avatar" }) })
+    check("avatar upload pass points into the caller's avatar folder", avatarPass.data?.pathname?.startsWith(`avatars/${a.user.id}/`))
+
+    const uploaded = await put(pass.data.pathname, png, { access: "public", token: pass.data.token, contentType: "image/png" })
+    const served = await fetch(uploaded.url)
+    check(
+      "the uploaded photo is served as a PNG",
+      served.status === 200 && served.headers.get("content-type") === "image/png",
+      `status ${served.status} type ${served.headers.get("content-type")}`,
+    )
+    const { blobs } = await list({ prefix: pass.data.pathname })
+    check("the uploaded photo is in the store cleanup uses", blobs.length === 1, "the server uses a different Blob store from .env.local")
+    const elsewhere = await put(`posts/${a.user.id}/elsewhere.png`, png, {
+      access: "public",
+      token: pass.data.token,
+      contentType: "image/png",
+    }).then(
+      () => true,
+      () => false,
+    )
+    check("an upload pass cannot write to another path", !elsewhere)
   },
 }
 
