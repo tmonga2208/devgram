@@ -6,6 +6,7 @@
 // directory to save a screenshot of each page into.
 import { mkdir } from "node:fs/promises"
 import path from "node:path"
+import { fileURLToPath } from "node:url"
 import { launchBrowser } from "./lib/browser.mjs"
 import { assertSameDatabase, removeTestUsers } from "./lib/test-users.mjs"
 
@@ -16,6 +17,11 @@ const SMALL_PHONE = { width: 320, height: 568 }
 const DESKTOP = { width: 1280, height: 800, mobile: false }
 const GUTTER = 16
 const TAP_TARGET = 44
+const fixture = (name) => fileURLToPath(new URL(`./fixtures/${name}`, import.meta.url))
+const buttonHeight = (text) => `(() => {
+  const button = [...document.querySelectorAll("main button")].find((b) => b.textContent.includes(${JSON.stringify(text)}))
+  return button ? button.getBoundingClientRect().height : 0
+})()`
 
 const run = Math.random().toString(36).slice(2, 8)
 // The longest usernames the app allows, and a link too long for one line:
@@ -458,6 +464,61 @@ async function main() {
     const direct = await page.evaluate(messagesState(names.b))
     await shot(page, "thread-opened-by-link")
     check("thread: a link to a conversation opens the thread", Boolean(direct.composer) && direct.threadText && !direct.conversation)
+
+    console.log("\n[photo upload]")
+    if (!process.env.BLOB_READ_WRITE_TOKEN) {
+      console.log("  skip photo upload (BLOB_READ_WRITE_TOKEN is not set)")
+    } else {
+      const photoInput = 'main input[type="file"][accept^="image"]'
+      await open(page, "/create")
+      const chooser = await page.evaluate(buttonHeight("Choose photo"))
+      check(`create: the Choose photo button is at least ${TAP_TARGET}px tall`, chooser >= TAP_TARGET, `height ${chooser}px`)
+
+      await page.setInputFiles(photoInput, [fixture("not-a-photo.heic")])
+      check(
+        "create: a photo the browser cannot read gets a clear message",
+        await page.waitFor(`document.querySelector("main").textContent.includes("This photo format isn't supported here")`, { timeout: 5000 }),
+      )
+
+      await page.setInputFiles(photoInput, [fixture("wide-3000x1500.png")])
+      check(
+        "create: the chosen photo shows a preview and finishes uploading",
+        await page.waitFor(
+          `[...document.querySelectorAll("main img")].some((img) => img.src.startsWith("blob:")) &&
+           document.querySelector("main").textContent.includes("Photo ready")`,
+          { timeout: 30000 },
+        ),
+      )
+      const caption = `phone photo ${run}`
+      await page.type("#caption", caption)
+      await page.evaluate(click(`[...document.querySelectorAll("main button")].find((b) => b.textContent.trim() === "Post")`))
+      const posted = await page.waitFor(`location.pathname === "/"`, { timeout: 15000 })
+      await sleep(800)
+      const stored = await page.evaluate(`(async () => {
+        const text = [...document.querySelectorAll("main p")].find((p) => p.textContent.includes(${JSON.stringify(caption)}))
+        const img = text?.closest(".rounded-lg")?.querySelector('img[src*=".public.blob.vercel-storage.com/posts/"]')
+        if (!img) return null
+        await img.decode().catch(() => undefined)
+        return { width: img.naturalWidth, height: img.naturalHeight }
+      })()`)
+      check("create: the post appears in the feed with the uploaded photo", posted && stored !== null, JSON.stringify(stored))
+      check("create: a 3000px photo is stored at most 2048px wide", stored !== null && stored.width > 0 && stored.width <= 2048, JSON.stringify(stored))
+
+      console.log("\n[profile picture upload]")
+      await open(page, "/settings")
+      const avatarButton = await page.evaluate(buttonHeight("Upload photo"))
+      check(`settings: the Upload photo button is at least ${TAP_TARGET}px tall`, avatarButton >= TAP_TARGET, `height ${avatarButton}px`)
+      await page.setInputFiles(photoInput, [fixture("wide-3000x1500.png")])
+      check(
+        "settings: an uploaded profile picture fills the picture field",
+        await page.waitFor(`document.querySelector("#avatar")?.value.includes(".public.blob.vercel-storage.com/avatars/")`, { timeout: 30000 }),
+      )
+      await page.evaluate(click(`[...document.querySelectorAll("main button")].find((b) => b.textContent.trim() === "Save Profile")`))
+      await sleep(1500)
+      await open(page, `/profile/${names.a}`)
+      const avatarSrc = await page.evaluate(`document.querySelector("main img")?.src || ""`)
+      check("profile: shows the uploaded profile picture", avatarSrc.includes("/avatars/"), avatarSrc)
+    }
 
     console.log("\n[small phone]")
     await page.setViewport(SMALL_PHONE)

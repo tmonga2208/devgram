@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { useAuth } from "@/contexts/auth-context"
+import { AvatarUpload } from "@/components/avatar-upload"
 import toast from "react-hot-toast"
 
 export function EditProfileForm() {
@@ -68,6 +69,7 @@ export function EditProfileForm() {
                 />
               </div>
               <p className="text-sm font-medium">{user.username}</p>
+              <AvatarUpload onUploaded={(url) => setFormData((prev) => ({ ...prev, avatar: url }))} />
             </div>
 
             <div className="space-y-2">

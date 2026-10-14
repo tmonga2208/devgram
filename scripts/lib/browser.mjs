@@ -141,6 +141,26 @@ export async function launchBrowser() {
         return false
       },
 
+      // Puts files into a file input, as if the person had chosen them.
+      async setInputFiles(selector, files) {
+        const { root } = await cdp("DOM.getDocument", { depth: 0 })
+        const { nodeId } = await cdp("DOM.querySelector", { nodeId: root.nodeId, selector })
+        if (!nodeId) throw new Error(`no element matches ${selector}`)
+        await cdp("DOM.setFileInputFiles", { nodeId, files })
+      },
+
+      // Focuses the element and types into it the way a keyboard would.
+      async type(selector, text) {
+        const focused = await page.evaluate(`(() => {
+          const el = document.querySelector(${JSON.stringify(selector)})
+          if (!el) return false
+          el.focus()
+          return true
+        })()`)
+        if (!focused) throw new Error(`no element matches ${selector}`)
+        await cdp("Input.insertText", { text })
+      },
+
       async screenshot(file) {
         const { data } = await cdp("Page.captureScreenshot", { format: "png" })
         await writeFile(file, Buffer.from(data, "base64"))

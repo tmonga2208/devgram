@@ -13,6 +13,8 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { usePosts } from "@/contexts/posts-context"
+import { MediaPicker } from "@/components/media-picker"
+import { usePhotoUpload } from "@/hooks/use-photo-upload"
 import toast from "react-hot-toast"
 
 export function CreatePostForm() {
@@ -26,6 +28,8 @@ export function CreatePostForm() {
   const [language, setLanguage] = useState("javascript")
   const [imageUrl, setImageUrl] = useState("")
   const [videoUrl , setVideoUrl] = useState("")
+  const { photo, select: selectPhoto, clear: clearPhoto } = usePhotoUpload("post")
+  const photoBusy = photo !== null && photo.url === null && photo.error === null
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -33,9 +37,9 @@ export function CreatePostForm() {
     setIsSubmitting(true)
 
     try {
-      if (activeTab === "image" && !imageUrl) {
-        setError("Image URL is required for image posts")
-        toast.error("Image URL is required for image posts")
+      const image = photo?.url || imageUrl.trim()
+      if (activeTab === "image" && !image) {
+        setError("Choose a photo or paste an image link")
         setIsSubmitting(false)
         return
       }
@@ -56,7 +60,7 @@ export function CreatePostForm() {
 
       const promise = createPost({
         caption,
-        image: activeTab === "image" ? imageUrl : undefined,
+        image: activeTab === "image" ? image : undefined,
         code: activeTab === "code" ? code : undefined,
         video: activeTab === "video" ? videoUrl : undefined,
         language: activeTab === "code" ? language : undefined,
@@ -83,7 +87,7 @@ export function CreatePostForm() {
       <Card>
         <CardHeader>
           <CardTitle>Create new post</CardTitle>
-          <CardDescription>Share an image or code snippet with your followers</CardDescription>
+          <CardDescription>Share a photo, a video or a code snippet with your followers</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit}>
@@ -108,15 +112,29 @@ export function CreatePostForm() {
                 </TabsTrigger>
               </TabsList>
               <TabsContent value="image" className="mt-4 space-y-4">
+                <MediaPicker
+                  kind="image"
+                  previewUrl={photo?.previewUrl ?? null}
+                  progress={photoBusy && photo ? photo.progress : null}
+                  status={photo?.url ? "Photo ready" : photoBusy && photo?.previewUrl ? `Uploading ${Math.round(photo.progress)}%` : null}
+                  error={photo?.error ?? null}
+                  onSelect={(file) => {
+                    setImageUrl("")
+                    selectPhoto(file)
+                  }}
+                  onClear={clearPhoto}
+                />
                 <div className="space-y-2">
-                  <Label htmlFor="imageUrl">Image URL</Label>
+                  <Label htmlFor="imageUrl">Or paste an image link</Label>
                   <Input
                     id="imageUrl"
                     type="url"
                     placeholder="https://example.com/image.jpg"
                     value={imageUrl}
-                    onChange={(e) => setImageUrl(e.target.value)}
-                    required={activeTab === "image"}
+                    onChange={(e) => {
+                      setImageUrl(e.target.value)
+                      if (e.target.value) clearPhoto()
+                    }}
                   />
                 </div>
               </TabsContent>
@@ -175,7 +193,7 @@ export function CreatePostForm() {
                 required
               />
             </div>
-            <Button type="submit" disabled={isSubmitting} className="mt-4 w-full">
+            <Button type="submit" disabled={isSubmitting || (activeTab === "image" && photoBusy)} className="mt-4 w-full">
               {isSubmitting ? "Posting..." : "Post"}
             </Button>
           </form>
