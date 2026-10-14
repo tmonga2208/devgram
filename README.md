@@ -6,7 +6,7 @@ Live at **https://devgram-nine.vercel.app**.
 
 ## Features
 
-- Feed of photo, video and syntax-highlighted code posts; photos upload from your device (or paste a link)
+- Feed of photo, video and syntax-highlighted code posts; photos and videos upload from your device (or paste a link)
 - Like, comment and save posts; saves are private to each user
 - User profiles with avatar, bio and website
 - Follow and unfollow
@@ -25,6 +25,7 @@ Live at **https://devgram-nine.vercel.app**.
 - React 19, TypeScript, Tailwind CSS 4, shadcn/ui
 - MongoDB with Mongoose
 - JWT authentication with `jose`; passwords hashed with `bcryptjs`
+- Vercel Blob for photos, Mux for videos
 
 ## Getting started
 
@@ -40,9 +41,12 @@ Create `.env.local` in the project root:
 MONGODB_URI=your_mongodb_connection_string
 JWT_SECRET=a_long_random_string
 BLOB_READ_WRITE_TOKEN=from_vercel_blob
+MUX_TOKEN_ID=from_mux
+MUX_TOKEN_SECRET=from_mux
+MUX_TEST_UPLOADS=1
 ```
 
-`JWT_SECRET` signs login tokens. Generate one with `openssl rand -hex 32`.
+`JWT_SECRET` signs login tokens. Generate one with `openssl rand -hex 32`. `MUX_TEST_UPLOADS=1` is for local work only: Mux then makes free test videos (watermarked, cut to 10 seconds, deleted after a day).
 
 Name a database in the URI (for example `...mongodb.net/devgram_dev`). Without one MongoDB uses its default `test` database, and local accounts and test runs end up next to whatever else lives there. Use a different database for local work than the deployed app uses.
 
@@ -62,7 +66,7 @@ Open http://localhost:3000 and register an account.
 | `npm run build` | production build |
 | `npm run lint` | ESLint |
 | `npm run typecheck` | TypeScript, no emit |
-| `npm run test:unit` | unit tests for the upload rules and photo deletes |
+| `npm run test:unit` | unit tests for the upload rules and for photo and video deletes |
 | `npm run smoke` | end-to-end API test against the running dev server |
 | `npm run mobile-check` | layout check of every page at phone width, in headless Chrome |
 
@@ -77,7 +81,7 @@ SMOKE_BASE_URL=https://devgram-nine.vercel.app SMOKE_DB=<production database> np
 
 Both refuse to start when the target's newest post is missing from the database cleanup would use.
 
-The smoke test's photos section and the phone check's photo upload upload real files and remove them through the Blob key in `.env.local`. They skip themselves when that key is missing; run them only against a server that uses the same Blob store.
+The smoke test's photos and videos sections, and the phone check's upload and playback checks, upload real files and remove them through the Blob and Mux keys in `.env.local`. They skip themselves when those keys are missing; run them only against a server that uses the same Blob store and Mux account.
 
 ## Installable app (PWA)
 
@@ -87,17 +91,18 @@ DevGram can be installed from the browser: "Install" in Chrome and Edge, "Add to
 - `public/sw.js` is the service worker. It is registered in production builds only, so `npm run dev` never runs behind a cache. It caches build assets and icons, and shows `/offline` when a page cannot be loaded. It never caches API responses.
 - The PNG icons are rendered from `app/icon.svg` and `public/icons/icon-maskable.svg`. To change the logo, edit those two files and render them again, for example `rsvg-convert -w 512 -h 512 app/icon.svg -o public/icons/icon-512.png`.
 
-## Photo uploads
+## Photo and video uploads
 
-Photos (post images and profile pictures) go to [Vercel Blob](https://vercel.com/docs/vercel-blob). The browser uploads straight to Blob with a short-lived token from `/api/uploads/image`, so files never pass through a Vercel Function.
+Photos (post images and profile pictures) go to [Vercel Blob](https://vercel.com/docs/vercel-blob); videos go to [Mux](https://www.mux.com). The browser uploads straight to them with short-lived credentials from `/api/uploads/*`, so files never pass through a Vercel Function. A video post is created only once Mux has the video ready; pressing Post earlier shows "Processing video…" and posts it when it is.
 
 Setup for a new deployment:
 
 1. `vercel blob create-store devgram-media --access public --environment production --environment preview --yes`
 2. `vercel blob create-store devgram-media-dev --access public --environment development --yes` (a separate store for local work). This also rewrites `.env.local` with the Development variables, so check your own values afterwards.
-3. On another machine, copy `BLOB_READ_WRITE_TOKEN` from `vercel env pull some-file --environment=development` into `.env.local`. Don't pull straight onto `.env.local`: that replaces the whole file.
+3. Accept Mux's terms in the Vercel dashboard (Integrations → Mux), then `vercel integration add mux --plan hobby --no-env-pull` (`hobby` is Mux's Free plan). This sets `MUX_TOKEN_ID` and `MUX_TOKEN_SECRET` for every environment.
+4. On another machine, copy `BLOB_READ_WRITE_TOKEN`, `MUX_TOKEN_ID` and `MUX_TOKEN_SECRET` from `vercel env pull some-file --environment=development` into `.env.local`. Don't pull straight onto `.env.local`: that replaces the whole file.
 
-Limits: photos up to 10 MB (JPEG, PNG, WebP, GIF), shrunk in the browser to 2048px when bigger than that or 2 MB. Deleting a post deletes its uploaded photo, and changing your profile picture deletes the old upload.
+Limits: photos up to 10 MB (JPEG, PNG, WebP, GIF), shrunk in the browser to 2048px when bigger than that or 2 MB; videos up to 2 minutes and 200 MB. A file Mux turns into sound without a picture counts as a failed video. Deleting a post deletes its uploaded photo or video, and changing your profile picture deletes the old upload.
 
 ## Folder structure
 
@@ -106,6 +111,7 @@ devgram/
 ├── app/           # Pages and API route handlers (app/api)
 ├── components/    # Feature components and shadcn/ui primitives (components/ui)
 ├── contexts/      # Auth and posts React contexts
+├── hooks/         # Photo and video upload hooks for the forms
 ├── lib/           # Auth, database connection and server helpers
 ├── models/        # Mongoose models
 ├── public/        # Static files, app icons and the service worker
@@ -132,6 +138,8 @@ POST   /api/posts/:id/comments    🔒 Add a comment
 GET    /api/posts/similar/:id        Similar posts
 
 POST   /api/uploads/image         🔒 Token to upload one photo to Blob
+POST   /api/uploads/video         🔒 One-time Mux address to upload a video to
+GET    /api/uploads/video/:id     🔒 How far your video upload has got
 
 GET    /api/users/:username          Public profile
 POST   /api/users/:username/follow 🔒 Toggle follow
@@ -151,7 +159,6 @@ GET    /api/health                   Database connectivity check
 
 ## Not yet built
 
-- Video upload (video posts take a link today)
 - Tags and tag-based explore
 - Skills and GitHub link on profiles
 - Admin dashboard for moderation and analytics
