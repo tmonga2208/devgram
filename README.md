@@ -2,6 +2,8 @@
 
 Devgram is a developer-focused social app inspired by Instagram. Developers share screenshots, videos and code snippets, follow each other, comment and message.
 
+Live at **https://devgram-nine.vercel.app**.
+
 ## Features
 
 - Feed of image, video and syntax-highlighted code posts
@@ -15,6 +17,7 @@ Devgram is a developer-focused social app inspired by Instagram. Developers shar
 - Account, notification and privacy settings
 - Email and password authentication
 - Installable as an app (PWA), with an offline page
+- Phone layout with a bottom tab bar, back navigation and safe-area support
 
 ## Tech stack
 
@@ -40,6 +43,8 @@ JWT_SECRET=a_long_random_string
 
 `JWT_SECRET` signs login tokens. Generate one with `openssl rand -hex 32`.
 
+Name a database in the URI (for example `...mongodb.net/devgram_dev`). Without one MongoDB uses its default `test` database, and local accounts and test runs end up next to whatever else lives there. Use a different database for local work than the deployed app uses.
+
 Run the development server:
 
 ```bash
@@ -57,8 +62,18 @@ Open http://localhost:3000 and register an account.
 | `npm run lint` | ESLint |
 | `npm run typecheck` | TypeScript, no emit |
 | `npm run smoke` | end-to-end API test against the running dev server |
+| `npm run mobile-check` | layout check of every page at phone width, in headless Chrome |
 
-`npm run smoke` registers two `smoke_...` users in the database from `.env.local`, exercises every endpoint, and deletes everything it created. It targets `http://localhost:3000`; if the dev server is on another port, set `SMOKE_BASE_URL`, for example `SMOKE_BASE_URL=http://localhost:3001 npm run smoke`.
+`npm run smoke` registers two `smoke_...` users through the API, exercises every endpoint, and then deletes everything those users created, straight from the database in `.env.local`. `npm run mobile-check` does the same with two `mobile_...` users and measures each page at 390px and 320px wide: no sideways scrolling, page margins, the tab bar, the back arrow, the messages screens, tab rows, long names and links, and safe areas. It needs Chrome or Chromium installed (`CHROME_PATH` points at another binary), and `MOBILE_SHOTS=some/dir` saves a screenshot of each page.
+
+Both target `http://localhost:3000`. To test another server, set `SMOKE_BASE_URL`, and set `SMOKE_DB` when that server uses a different database from `.env.local`, so cleanup finds the test users:
+
+```bash
+SMOKE_BASE_URL=http://localhost:3001 npm run smoke
+SMOKE_BASE_URL=https://devgram-nine.vercel.app SMOKE_DB=<production database> npm run smoke
+```
+
+Both refuse to start when the target's newest post is missing from the database cleanup would use.
 
 ## Installable app (PWA)
 
@@ -78,7 +93,7 @@ devgram/
 ├── lib/           # Auth, database connection and server helpers
 ├── models/        # Mongoose models
 ├── public/        # Static files, app icons and the service worker
-├── scripts/       # Smoke test
+├── scripts/       # Smoke test and phone layout check
 └── middleware.ts  # Redirects signed-out visitors away from protected pages
 ```
 

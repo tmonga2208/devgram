@@ -279,8 +279,8 @@ export function DirectMessages() {
                     {conversation.username.slice(0, 2).toUpperCase()}
                   </AvatarFallback>
                 </Avatar>
-                <div className="min-w-0 flex-1 text-left">
-                  <p className="truncate font-medium">{conversation.username}</p>
+                <div className="flex-1 text-left max-md:min-w-0">
+                  <p className="font-medium max-md:truncate">{conversation.username}</p>
                   <p className="text-sm text-muted-foreground line-clamp-1">
                     {conversation.lastMessage.content}
                   </p>
@@ -312,7 +312,7 @@ export function DirectMessages() {
               <div className="min-w-0">
                 <Link
                   href={`/profile/${activeConversation.username}`}
-                  className="block truncate font-medium hover:underline"
+                  className="font-medium hover:underline max-md:block max-md:truncate"
                 >
                   {activeConversation.username}
                 </Link>
