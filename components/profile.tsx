@@ -2,7 +2,8 @@
 import Link from "next/link"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
-import { Bookmark, Grid, Settings } from "lucide-react"
+import { Bookmark, Clapperboard, Grid, Settings } from "lucide-react"
+import { ProfileDevBits } from "@/components/profile-devbits"
 import { usePosts } from "@/contexts/posts-context"
 import { useAuth } from "@/contexts/auth-context"
 import { ProfilePost } from "@/components/profile-post"
@@ -171,10 +172,14 @@ export function Profile({ username }: ProfileProps) {
         </div>
       </div>
       <Tabs defaultValue="posts">
-        <TabsList className={`grid w-full ${isOwnProfile ? "grid-cols-2" : "grid-cols-1"}`}>
+        <TabsList className={`grid w-full ${isOwnProfile ? "grid-cols-3" : "grid-cols-2"}`}>
           <TabsTrigger value="posts" className="flex items-center gap-2">
             <Grid className="h-4 w-4" />
             <span className="hidden sm:inline">Posts</span>
+          </TabsTrigger>
+          <TabsTrigger value="devbits" className="flex items-center gap-2">
+            <Clapperboard className="h-4 w-4" />
+            <span className="hidden sm:inline">DevBits</span>
           </TabsTrigger>
           {isOwnProfile && (
             <TabsTrigger value="saved" className="flex items-center gap-2">
@@ -193,6 +198,9 @@ export function Profile({ username }: ProfileProps) {
               ))}
             </div>
           )}
+        </TabsContent>
+        <TabsContent value="devbits" className="mt-6">
+          <ProfileDevBits username={username} />
         </TabsContent>
         {isOwnProfile && (
           <TabsContent value="saved" className="mt-6">

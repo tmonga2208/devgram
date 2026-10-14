@@ -721,6 +721,41 @@ async function main() {
       )
     }
 
+    console.log("\n[profile devbits]")
+    if (!devbits) {
+      console.log("  skip profile devbits (MUX_TOKEN_ID is not set)")
+    } else {
+      const tile = `document.querySelector('main a[href="/devbits/${devbits.one}?user=${names.a}"]')`
+      await open(page, `/profile/${names.a}`)
+      check(
+        "profile: the Posts tab leaves DevBits out",
+        !(await page.evaluate(`Boolean(document.querySelector('main a[href="/p/${devbits.one}"]'))`)),
+      )
+      // Radix tabs switch on mouse down, as a tap starts, not on click().
+      await page.evaluate(`[...document.querySelectorAll('main [role="tab"]')]
+        .find((tab) => tab.textContent.includes("DevBits"))
+        ?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }))`)
+      check("profile: the DevBits tab lists your DevBits", await page.waitFor(`Boolean(${tile})`, { timeout: 10000 }))
+      check(
+        "profile: DevBit tiles show the video's thumbnail",
+        await page.evaluate(`${tile}.querySelector("img")?.src.startsWith("https://image.mux.com/") === true`),
+      )
+      await page.evaluate(click(tile))
+      check(
+        "profile: a DevBit tile opens it in the DevBits screen",
+        await page.waitFor(`location.pathname === ${JSON.stringify(`/devbits/${devbits.one}`)} && document.querySelector("[data-devbit]") !== null`, { timeout: 15000 }),
+      )
+      await sleep(500)
+      const opened = await page.evaluate(DEVBITS_STATE)
+      const onScreen = opened.list ? opened.slides[Math.round(opened.scrollTop / opened.list.height)] : null
+      check("profile: the DevBits screen opens at the tapped DevBit", onScreen?.id === devbits.one, JSON.stringify(onScreen))
+      check(
+        "profile: it swipes through only that person's DevBits",
+        opened.slides.length > 0 && opened.slides.every((slide) => slide.author === names.a),
+        opened.slides.map((slide) => slide.author).join(", "),
+      )
+    }
+
     console.log("\n[photo upload]")
     if (!process.env.BLOB_READ_WRITE_TOKEN) {
       console.log("  skip photo upload (BLOB_READ_WRITE_TOKEN is not set)")
