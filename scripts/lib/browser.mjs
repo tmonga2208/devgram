@@ -176,7 +176,8 @@ export async function launchBrowser() {
   }
 
   async function close() {
-    await send("Browser.close").catch(() => undefined)
+    // A browser that stopped answering must not keep the run from cleaning up.
+    await Promise.race([send("Browser.close").catch(() => undefined), sleep(5000)])
     socket.close()
     chrome.kill()
     await rm(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }).catch(() => undefined)

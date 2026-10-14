@@ -718,6 +718,9 @@ const sections = {
     await putFile(junk.data.url, NOT_A_VIDEO_FIXTURE)
     const failed = await waitForUpload(a, junk.data.uploadId)
     check("a file that is not a video ends as failed", failed.status === "failed", JSON.stringify(failed))
+    // The Free plan keeps few videos, so one that can never be posted is removed.
+    const junkAsset = (await new Mux().video.uploads.retrieve(junk.data.uploadId)).asset_id
+    check("a video that can never be posted is removed from Mux", typeof junkAsset === "string" && !(await muxAssetExists(junkAsset)))
 
     state.video = { uploadId, playbackId: ready.playbackId, junkUploadId: junk.data.uploadId }
 

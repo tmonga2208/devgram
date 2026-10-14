@@ -109,9 +109,9 @@ The service worker needs no change: Blob and Mux URLs are on other origins, whic
 
 ## Known gaps
 
-- A video that reaches Mux but is never posted (the user left during processing, or the post was refused) stays in Mux. A cleanup script that removes assets no post refers to is a possible follow-up.
+- A video that reaches Mux but is never posted (the user left, removed it or picked another, or sent a file straight to the upload address) stays in Mux. One that can never be posted (no picture, too long, failed at Mux) is removed as soon as the app checks its status. A delete when an upload is abandoned, or a cleanup job that removes assets no post refers to, are possible follow-ups.
 - A photo uploaded on the Create screen or in Settings that is never posted or saved stays in its owner's Blob folder.
-- Nothing limits how many photos an account uploads. Registration is open, so a per-account cap alone would only mean an abuser makes more accounts; protecting the Hobby plan's 1 GB needs a site-wide upload budget, slower sign-ups, or a paid Blob plan.
+- Nothing limits how many photos or videos an account uploads. Registration is open, so a per-account cap alone would only mean an abuser makes more accounts; protecting the Hobby plan's 1 GB and Mux's 10 videos needs a site-wide upload budget, slower sign-ups, or paid plans.
 - Uploaded files are public to anyone with the link, like everything posted today.
-- The Hobby plan includes 1 GB of Blob storage and 10 GB of Blob downloads a month. If the live site goes past that, Blob stops serving files for 30 days unless the plan is upgraded. Shrinking photos before upload keeps typical use far below it. Mux usage is billed through the Vercel account at the plan the user picks when connecting it.
-- Preview deployments share the live site's Blob store and database.
+- The Hobby plan includes 1 GB of Blob storage and 10 GB of Blob downloads a month. If the live site goes past that, Blob stops serving files for 30 days unless the plan is upgraded. Shrinking photos before upload keeps typical use far below it. Mux is on its Free plan: at most 10 videos stored at once (posted or not) and 100,000 minutes of viewing a month, so an 11th video can't be kept until some are deleted or the plan becomes Pay as You Go. How Mux refuses it hasn't been tried; the upload most likely ends as failed.
+- Preview deployments share the live site's Blob store and database, and local runs share its Mux environment (local test videos are deleted after a day, or by the test cleanup).

@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server"
 import { requireAuth } from "@/lib/auth"
 import { handleRouteError, jsonError } from "@/lib/http"
-import { findVideoUpload, publicPlaybackId } from "@/lib/mux"
+import { videoAssetProblem } from "@/lib/media-rules"
+import { deleteVideoAsset, findVideoUpload, publicPlaybackId } from "@/lib/mux"
 
 type Context = { params: Promise<{ id: string }> }
 
@@ -14,6 +15,17 @@ export async function GET(req: Request, { params }: Context) {
     const { id } = await params
     const upload = await findVideoUpload(id, auth.id)
     if (!upload) return jsonError("Video upload not found", 404)
+
+    // A finished video that can never be posted (no picture, too long, failed
+    // at Mux) is removed now: nobody can use it, and Mux's plan limits how
+    // many videos it keeps.
+    if (upload.asset && upload.asset.status !== "preparing") {
+      const problem = videoAssetProblem(upload.asset, auth.id)
+      if (problem) {
+        await deleteVideoAsset(upload.asset.id)
+        return NextResponse.json({ status: "failed", error: problem.message })
+      }
+    }
     if (upload.status !== "ready" || !upload.asset) return NextResponse.json({ status: upload.status })
 
     return NextResponse.json({

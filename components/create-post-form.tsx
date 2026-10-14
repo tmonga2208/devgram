@@ -35,6 +35,7 @@ export function CreatePostForm() {
   const photoBusy = photo !== null && photo.url === null && photo.error === null
   const { video: upload, select: selectVideo, clear: clearVideo } = useVideoUpload()
   // Post was pressed before the video was ready: publish as soon as it is.
+  // Removing or replacing the video, or switching tabs, cancels that.
   const [publishWhenReady, setPublishWhenReady] = useState(false)
   const publishing = useRef(false)
 
@@ -63,7 +64,12 @@ export function CreatePostForm() {
   )
 
   useEffect(() => {
-    if (!publishWhenReady || !upload) return
+    if (!publishWhenReady) return
+    if (!upload) {
+      // The video is gone (removed, or a link typed instead): nothing to wait for.
+      setPublishWhenReady(false)
+      return
+    }
     if (upload.phase === "ready" && upload.uploadId) {
       setPublishWhenReady(false)
       publish({ caption, videoUploadId: upload.uploadId })
@@ -109,7 +115,15 @@ export function CreatePostForm() {
                 <AlertDescription>{error}</AlertDescription>
               </Alert>
             )}
-            <Tabs defaultValue="image" value={activeTab} onValueChange={setActiveTab} className="w-full">
+            <Tabs
+              defaultValue="image"
+              value={activeTab}
+              onValueChange={(value) => {
+                setActiveTab(value)
+                setPublishWhenReady(false)
+              }}
+              className="w-full"
+            >
               <TabsList className="grid w-full grid-cols-3">
                 <TabsTrigger value="image" className="flex items-center gap-2">
                   <ImageIcon className="h-4 w-4" />
@@ -167,6 +181,7 @@ export function CreatePostForm() {
                   }
                   error={upload?.error ?? null}
                   onSelect={(file) => {
+                    setPublishWhenReady(false)
                     setVideoUrl("")
                     selectVideo(file)
                   }}

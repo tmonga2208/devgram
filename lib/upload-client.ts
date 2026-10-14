@@ -49,6 +49,8 @@ export async function uploadPhoto(
 
 export interface VideoStatus {
   status: "uploading" | "processing" | "ready" | "failed"
+  // Why a failed video can't be posted, when the server knows.
+  error?: string
   playbackId?: string
   aspectRatio?: string
   duration?: number
@@ -67,16 +69,22 @@ export async function getVideoStatus(uploadId: string, authFetch: AuthFetch, sig
   return (await response.json()) as VideoStatus
 }
 
-// The video's length in seconds, or null when this browser cannot read it.
-// Some phone formats only Mux can read; the server checks the length again.
+// The video's length in seconds, or null when this browser cannot read it
+// (some phone formats only Mux can read) or doesn't say within 5 seconds
+// (some phones in power saving). The server checks the length again.
 export function readVideoDuration(file: File): Promise<number | null> {
   return new Promise((resolve) => {
     const video = document.createElement("video")
     const url = URL.createObjectURL(file)
+    let settled = false
     const done = (seconds: number | null) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
       URL.revokeObjectURL(url)
       resolve(seconds)
     }
+    const timer = setTimeout(() => done(null), 5000)
     video.preload = "metadata"
     video.onloadedmetadata = () => done(Number.isFinite(video.duration) ? video.duration : null)
     video.onerror = () => done(null)

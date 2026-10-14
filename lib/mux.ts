@@ -55,7 +55,14 @@ export async function findVideoUpload(uploadId: string, userId: string): Promise
   if (upload.status === "waiting") return { status: "uploading" }
   if (upload.status !== "asset_created" || !upload.asset_id) return { status: "failed" }
 
-  const asset = await mux().video.assets.retrieve(upload.asset_id)
+  let asset: MuxAsset
+  try {
+    asset = await mux().video.assets.retrieve(upload.asset_id)
+  } catch (error) {
+    // Removed already: the status route deletes videos that can never be posted.
+    if (error instanceof NotFoundError) return { status: "failed" }
+    throw error
+  }
   if (asset.status === "errored") return { status: "failed", asset }
   if (asset.status !== "ready") return { status: "processing", asset }
   return { status: hasVideoTrack(asset) ? "ready" : "failed", asset }

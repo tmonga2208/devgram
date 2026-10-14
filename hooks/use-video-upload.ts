@@ -76,9 +76,9 @@ export function useVideoUpload() {
           const poll = async () => {
             if (current.current !== attempt) return
             try {
-              const { status } = await getVideoStatus(uploadId, authFetch, abort.signal)
+              const { status, error } = await getVideoStatus(uploadId, authFetch, abort.signal)
               if (status === "ready") return update({ phase: "ready" })
-              if (status === "failed") return fail("This video couldn't be processed. Try another file.")
+              if (status === "failed") return fail(error || "This video couldn't be processed. Try another file.")
             } catch {
               if (abort.signal.aborted) return
             }

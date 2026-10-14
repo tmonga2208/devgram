@@ -583,16 +583,44 @@ async function main() {
     if (!process.env.MUX_TOKEN_ID) {
       console.log("  skip video upload (MUX_TOKEN_ID is not set)")
     } else {
-      await open(page, "/create")
-      // Radix tabs switch on mouse down, as a tap starts, not on click().
-      await page.evaluate(`[...document.querySelectorAll('[role="tab"]')]
-        .find((tab) => tab.textContent.includes("Video"))
-        ?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }))`)
-      await sleep(300)
+      const videoInput = 'main input[type="file"][accept^="video"]'
+      const postButton = `[...document.querySelectorAll("main button")].find((b) => b.textContent.trim() === "Post")`
+      const waitingButton = `[...document.querySelectorAll("main button")].some((b) => b.textContent.includes("Processing video"))`
+      const openVideoTab = async () => {
+        await open(page, "/create")
+        // Radix tabs switch on mouse down, as a tap starts, not on click().
+        await page.evaluate(`[...document.querySelectorAll('[role="tab"]')]
+          .find((tab) => tab.textContent.includes("Video"))
+          ?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }))`)
+        await sleep(300)
+      }
+
+      await openVideoTab()
       const chooser = await page.evaluate(buttonHeight("Choose video"))
       check(`create: the Choose video button is at least ${TAP_TARGET}px tall`, chooser >= TAP_TARGET, `height ${chooser}px`)
 
-      await page.setInputFiles('main input[type="file"][accept^="video"]', [fixture("clip-2s.mp4")])
+      // Some phones never report a video's length (power saving); the upload goes ahead.
+      await page.evaluate(`void Object.defineProperty(HTMLMediaElement.prototype, "src", { configurable: true, get() { return "" }, set() {} })`)
+      await page.setInputFiles(videoInput, [fixture("clip-2s.mp4")])
+      check(
+        "create: a video whose length the browser never reports still uploads",
+        await page.waitFor(`document.querySelector("main").textContent.includes("Video ready")`, { timeout: 45000 }),
+      )
+
+      // Post pressed while the video waits, then a link pasted instead: Post comes back.
+      await openVideoTab()
+      await page.setInputFiles(videoInput, [fixture("clip-2s.mp4")])
+      await page.type("#caption", `link instead ${run}`)
+      await page.evaluate(click(postButton))
+      await page.waitFor(waitingButton, { timeout: 10000 })
+      await page.type("#videoUrl", "https://youtu.be/dQw4w9WgXcQ")
+      check(
+        "create: pasting a link while a video waits gives Post back",
+        await page.waitFor(`(() => { const post = ${postButton}; return Boolean(post && !post.disabled) })()`, { timeout: 5000 }),
+      )
+
+      await openVideoTab()
+      await page.setInputFiles(videoInput, [fixture("clip-2s.mp4")])
       const caption = `phone video ${run}`
       await page.type("#caption", caption)
       // An impatient double press while the video is still uploading.
