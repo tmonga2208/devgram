@@ -73,12 +73,23 @@ test("keeps small photos and every GIF as they are", () => {
 })
 
 test("accepts a ready, public video of the user's that is at most 2 minutes", () => {
-  const asset = { status: "ready", passthrough: USER, duration: MAX_VIDEO_SECONDS, playback_ids: [{ id: "p", policy: "public" }] }
+  const asset = {
+    status: "ready",
+    passthrough: USER,
+    duration: MAX_VIDEO_SECONDS,
+    playback_ids: [{ id: "p", policy: "public" }],
+    tracks: [{ type: "video" }, { type: "audio" }],
+  }
   assert.equal(videoAssetProblem(asset, USER), null)
 })
 
+test("refuses a ready asset with no picture, which Mux makes from some files that aren't videos", () => {
+  const soundOnly = { status: "ready", passthrough: USER, duration: 120, playback_ids: [{ id: "p", policy: "public" }], tracks: [{ type: "audio" }] }
+  assert.deepEqual(videoAssetProblem(soundOnly, USER), { status: 400, message: "This video could not be processed" })
+})
+
 test("refuses someone else's, unfinished, failed, long and unplayable videos", () => {
-  const ready = { status: "ready", passthrough: USER, duration: 10, playback_ids: [{ id: "p", policy: "public" }] }
+  const ready = { status: "ready", passthrough: USER, duration: 10, playback_ids: [{ id: "p", policy: "public" }], tracks: [{ type: "video" }] }
   assert.equal(videoAssetProblem({ ...ready, passthrough: OTHER }, USER)?.status, 404)
   assert.equal(videoAssetProblem({ ...ready, status: "preparing" }, USER)?.status, 409)
   assert.equal(videoAssetProblem({ ...ready, status: "errored" }, USER)?.status, 400)

@@ -83,6 +83,13 @@ export interface MuxAssetSummary {
   passthrough?: string
   duration?: number
   playback_ids?: Array<{ id: string; policy: string }>
+  tracks?: Array<{ type?: string }>
+}
+
+// Whether a ready asset has a picture. Mux turns some files that aren't
+// videos, text among them, into assets with sound only.
+export function hasVideoTrack(asset: MuxAssetSummary): boolean {
+  return asset.tracks?.some((track) => track.type === "video") ?? false
 }
 
 // Why the Mux asset cannot go on this user's post, or null when it can.
@@ -93,6 +100,7 @@ export function videoAssetProblem(
   if (asset.passthrough !== userId) return { status: 404, message: "Video upload not found" }
   if (asset.status === "errored") return { status: 400, message: "This video could not be processed" }
   if (asset.status !== "ready") return { status: 409, message: "This video is still processing" }
+  if (!hasVideoTrack(asset)) return { status: 400, message: "This video could not be processed" }
   if ((asset.duration ?? 0) > MAX_VIDEO_SECONDS) return { status: 400, message: VIDEO_TOO_LONG }
   if (!asset.playback_ids?.some((playback) => playback.policy === "public")) {
     return { status: 400, message: "This video cannot be played" }

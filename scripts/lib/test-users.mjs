@@ -3,6 +3,7 @@
 // database the target writes to: MONGODB_URI names it, and SMOKE_DB overrides
 // the name when the target uses another one (production, for example).
 import { del, list } from "@vercel/blob"
+import Mux from "@mux/mux-node"
 import mongoose from "mongoose"
 
 async function withDatabase(work) {
@@ -57,6 +58,23 @@ async function removeTestFiles(userIds) {
   return removed
 }
 
+// The test users' videos carry their id as Mux passthrough (lib/mux.ts).
+// Looks through the 300 newest assets, which covers any test run.
+async function removeTestVideos(userIds) {
+  if (!process.env.MUX_TOKEN_ID || userIds.length === 0) return 0
+  const mux = new Mux()
+  let removed = 0
+  let seen = 0
+  for await (const asset of mux.video.assets.list({ limit: 100 })) {
+    if (userIds.includes(asset.passthrough)) {
+      await mux.video.assets.delete(asset.id)
+      removed++
+    }
+    if (++seen >= 300) break
+  }
+  return removed
+}
+
 // Deletes exactly the named users and everything they authored, sent or
 // received, then asks the target whether it still serves any of them.
 export async function removeTestUsers(baseUrl, usernames) {
@@ -81,6 +99,7 @@ export async function removeTestUsers(baseUrl, usernames) {
     }
   })
   const files = await removeTestFiles(userIds)
+  const videos = await removeTestVideos(userIds)
 
   const leftovers = []
   for (const username of usernames) {
@@ -91,7 +110,7 @@ export async function removeTestUsers(baseUrl, usernames) {
   return {
     summary: `cleanup (${name}): ${Object.entries(removed)
       .map(([key, value]) => `${key}=${value.deletedCount}`)
-      .join(" ")} files=${files}`,
+      .join(" ")} files=${files} videos=${videos}`,
     leftovers,
   }
 }

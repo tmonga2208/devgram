@@ -6,6 +6,7 @@
 import { readFile } from "node:fs/promises"
 import { BlobNotFoundError, head, list } from "@vercel/blob"
 import { put } from "@vercel/blob/client"
+import Mux, { NotFoundError } from "@mux/mux-node"
 import { assertSameDatabase, removeTestUsers } from "./lib/test-users.mjs"
 
 const BASE = process.env.SMOKE_BASE_URL || "http://localhost:3000"
@@ -99,6 +100,24 @@ async function blobExists(url) {
     if (error instanceof BlobNotFoundError) return false
     throw error
   }
+}
+
+const CLIP_FIXTURE = new URL("./fixtures/clip-2s.mp4", import.meta.url)
+const NOT_A_VIDEO_FIXTURE = new URL("./fixtures/not-a-video.mp4", import.meta.url)
+
+async function putFile(url, fixture) {
+  const res = await fetch(url, { method: "PUT", body: await readFile(fixture) })
+  if (!res.ok) throw new Error(`upload to Mux answered ${res.status}`)
+}
+
+// Polls the upload until Mux says ready or failed, for at most two minutes.
+async function waitForUpload(user, uploadId) {
+  for (let attempt = 0; attempt < 60; attempt++) {
+    const res = await api("GET", `/api/uploads/video/${uploadId}`, { token: user.token })
+    if (res.data?.status === "ready" || res.data?.status === "failed") return res.data
+    await new Promise((resolve) => setTimeout(resolve, 2000))
+  }
+  return { status: "still waiting after two minutes" }
 }
 
 const sections = {
@@ -652,6 +671,45 @@ const sections = {
       cleared.data?.avatar === "/placeholder.svg" && !(await blobExists(second)),
       `avatar ${cleared.data?.avatar}`,
     )
+  },
+
+  async videos() {
+    if (!process.env.MUX_TOKEN_ID) {
+      console.log("  skip videos (MUX_TOKEN_ID is not set)")
+      return
+    }
+    await ensureUsers()
+    const { a, b } = state
+
+    const anon = await api("POST", "/api/uploads/video")
+    check("video upload without token is 401", anon.status === 401, `status ${anon.status}`)
+    const created = await api("POST", "/api/uploads/video", { token: a.token })
+    check(
+      "video upload is 201 with an upload address",
+      created.status === 201 && typeof created.data?.uploadId === "string" && created.data?.url?.startsWith("https://"),
+      `status ${created.status} ${created.text.slice(0, 120)}`,
+    )
+    const { uploadId, url } = created.data
+    const otherUser = await api("GET", `/api/uploads/video/${uploadId}`, { token: b.token })
+    check("someone else's upload is 404", otherUser.status === 404, `status ${otherUser.status}`)
+    const anonStatus = await api("GET", `/api/uploads/video/${uploadId}`)
+    check("upload status without token is 401", anonStatus.status === 401, `status ${anonStatus.status}`)
+    const malformed = await api("GET", "/api/uploads/video/not-an-upload", { token: a.token })
+    check("a malformed upload id is 404", malformed.status === 404, `status ${malformed.status}`)
+    const waiting = await api("GET", `/api/uploads/video/${uploadId}`, { token: a.token })
+    check("a new upload is still uploading", waiting.data?.status === "uploading", JSON.stringify(waiting.data))
+
+    await putFile(url, CLIP_FIXTURE)
+    const ready = await waitForUpload(a, uploadId)
+    check("an uploaded clip becomes ready with a playback id", ready.status === "ready" && typeof ready.playbackId === "string", JSON.stringify(ready))
+    check("the clip keeps its vertical shape", ready.aspectRatio === "9:16", `aspect ratio ${ready.aspectRatio}`)
+
+    const junk = await api("POST", "/api/uploads/video", { token: a.token })
+    await putFile(junk.data.url, NOT_A_VIDEO_FIXTURE)
+    const failed = await waitForUpload(a, junk.data.uploadId)
+    check("a file that is not a video ends as failed", failed.status === "failed", JSON.stringify(failed))
+
+    state.video = { uploadId, playbackId: ready.playbackId, junkUploadId: junk.data.uploadId }
   },
 }
 
