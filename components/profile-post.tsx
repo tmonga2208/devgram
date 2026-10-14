@@ -1,6 +1,7 @@
 import Link from "next/link"
-import { Heart, MessageCircle, Code, Video } from "lucide-react"
+import { Heart, MessageCircle, Code, Play, Video } from "lucide-react"
 import type { PostType } from "@/lib/types"
+import { muxThumbnailUrl } from "@/lib/media-urls"
 
 interface ProfilePostProps {
   post: PostType
@@ -17,6 +18,17 @@ export function ProfilePost({ post }: ProfilePostProps) {
           loading="lazy"
           className="h-full w-full object-cover transition-transform group-hover:scale-105"
         />
+      ) : post.muxVideo ? (
+        <>
+          {/* eslint-disable-next-line @next/next/no-img-element -- Mux thumbnail */}
+          <img
+            src={muxThumbnailUrl(post.muxVideo.playbackId, 480)}
+            alt="Video thumbnail"
+            loading="lazy"
+            className="h-full w-full object-cover transition-transform group-hover:scale-105"
+          />
+          <Play className="absolute right-2 top-2 h-5 w-5 fill-white text-white drop-shadow" />
+        </>
       ) : (
         <div className="flex h-full w-full items-center justify-center bg-zinc-950 text-zinc-50">
           {post.video ? <Video className="h-8 w-8" /> : <Code className="h-8 w-8" />}

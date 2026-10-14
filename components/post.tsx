@@ -15,6 +15,7 @@ import { Separator } from "@/components/ui/separator"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { CodeBlock } from "@/components/code-block"
 import { VideoPlayer } from "@/components/video-player"
+import { MuxVideo } from "@/components/mux-video"
 import type { PostType } from "@/lib/types"
 import toast from "react-hot-toast"
 
@@ -124,6 +125,8 @@ export function Post({ post }: PostProps) {
         {post.image ? (
           // eslint-disable-next-line @next/next/no-img-element -- user-supplied URL, any host
           <img src={post.image} alt={post.caption} loading="lazy" className="w-full object-cover" />
+        ) : post.muxVideo ? (
+          <MuxVideo playbackId={post.muxVideo.playbackId} aspectRatio={post.muxVideo.aspectRatio} title={post.caption} />
         ) : post.video ? (
           <VideoPlayer url={post.video} />
         ) : post.code ? (

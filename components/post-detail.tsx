@@ -7,6 +7,8 @@ import { Heart, MessageCircle, Bookmark, Code, Send } from "lucide-react"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { CodeBlock } from "@/components/code-block"
 import { VideoPlayer } from "./video-player"
+import { MuxVideo } from "@/components/mux-video"
+import { muxThumbnailUrl } from "@/lib/media-urls"
 import type { PostType } from "@/lib/types"
 import { usePosts } from "@/contexts/posts-context"
 import { useAuth } from "@/contexts/auth-context"
@@ -143,6 +145,9 @@ export function PostDetail({ id }: PostDetailProps) {
             <img src={post.image} alt={post.caption || "Post image"} className="w-full object-cover" />
           )}
           {post.video && <VideoPlayer url={post.video} className="w-full" />}
+          {post.muxVideo && (
+            <MuxVideo playbackId={post.muxVideo.playbackId} aspectRatio={post.muxVideo.aspectRatio} title={post.caption} />
+          )}
           {post.code && <CodeBlock code={post.code} language={post.language || "javascript"} />}
 
           <div className="p-4 space-y-4">
@@ -246,6 +251,9 @@ export function PostDetail({ id }: PostDetailProps) {
                 {similarPost.image ? (
                   // eslint-disable-next-line @next/next/no-img-element -- user-supplied URL, any host
                   <img src={similarPost.image} alt={similarPost.caption} loading="lazy" className="h-full w-full object-cover" />
+                ) : similarPost.muxVideo ? (
+                  // eslint-disable-next-line @next/next/no-img-element -- Mux thumbnail
+                  <img src={muxThumbnailUrl(similarPost.muxVideo.playbackId, 320)} alt="Video thumbnail" loading="lazy" className="h-full w-full object-cover" />
                 ) : similarPost.code ? (
                   <div className="flex h-full w-full items-center justify-center bg-zinc-950 text-zinc-50">
                     <Code className="h-8 w-8" />

@@ -4,7 +4,7 @@
 // Usage: npm run mobile-check
 // SMOKE_BASE_URL and SMOKE_DB work as in the smoke test. MOBILE_SHOTS names a
 // directory to save a screenshot of each page into.
-import { mkdir } from "node:fs/promises"
+import { mkdir, readFile } from "node:fs/promises"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { launchBrowser } from "./lib/browser.mjs"
@@ -90,7 +90,22 @@ async function seed() {
     await api("POST", "/api/messages", b.token, { receiver: names.a, content })
   }
   await api("POST", "/api/messages", a.token, { receiver: names.b, content: "better than before" })
-  return { a, b, postId: code._id }
+
+  // A posted Mux video, for the playback and thumbnail checks.
+  let videoPostId = null
+  if (process.env.MUX_TOKEN_ID) {
+    const { uploadId, url } = await api("POST", "/api/uploads/video", a.token)
+    const put = await fetch(url, { method: "PUT", body: await readFile(fixture("clip-2s.mp4")) })
+    if (!put.ok) throw new Error(`upload to Mux answered ${put.status}`)
+    for (let attempt = 0; attempt < 60; attempt++) {
+      const { status } = await api("GET", `/api/uploads/video/${uploadId}`, a.token)
+      if (status === "ready") break
+      if (status === "failed") throw new Error("Mux could not process the test clip")
+      await sleep(2000)
+    }
+    videoPostId = (await api("POST", "/api/posts", a.token, { caption: `vertical video ${run}`, videoUploadId: uploadId }))._id
+  }
+  return { a, b, postId: code._id, videoPostId }
 }
 
 // Everything below this point runs inside the page.
@@ -337,7 +352,7 @@ async function main() {
 
   let browser = null
   try {
-    const { a, postId } = await seed()
+    const { a, postId, videoPostId } = await seed()
     const tabs = `Home=/ Explore=/explore Create=/create Profile=/profile/${names.a}`
     browser = await launchBrowser()
     const page = await browser.newPage(PHONE)
@@ -464,6 +479,28 @@ async function main() {
     const direct = await page.evaluate(messagesState(names.b))
     await shot(page, "thread-opened-by-link")
     check("thread: a link to a conversation opens the thread", Boolean(direct.composer) && direct.threadText && !direct.conversation)
+
+    console.log("\n[video playback]")
+    if (!videoPostId) {
+      console.log("  skip video playback (MUX_TOKEN_ID is not set)")
+    } else {
+      await open(page, "/")
+      check("home: an uploaded video shows a player", await page.waitFor(`document.querySelector("main mux-player")`, { timeout: 15000 }))
+      await open(page, "/explore")
+      check(
+        "explore: an uploaded video shows its thumbnail",
+        await page.waitFor(`[...document.querySelectorAll("main img")].some((img) => img.src.startsWith("https://image.mux.com/"))`, { timeout: 15000 }),
+      )
+      await open(page, `/p/${videoPostId}`)
+      await page.waitFor(`document.querySelector("main mux-player")`, { timeout: 15000 })
+      const player = await page.evaluate(`(() => {
+        const box = document.querySelector("main mux-player")?.getBoundingClientRect()
+        return box ? { width: box.width, height: box.height } : null
+      })()`)
+      check("post: a vertical video keeps its vertical shape", player !== null && player.height > player.width, JSON.stringify(player))
+      const shell = await page.evaluate(SHELL)
+      check("post: a video page fits the width of the screen", fitsScreen(shell, PHONE), widthDetail(shell, PHONE))
+    }
 
     console.log("\n[photo upload]")
     if (!process.env.BLOB_READ_WRITE_TOKEN) {
