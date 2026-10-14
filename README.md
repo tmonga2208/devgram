@@ -7,6 +7,7 @@ Live at **https://devgram-nine.vercel.app**.
 ## Features
 
 - Feed of photo, video and syntax-highlighted code posts; photos and videos upload from your device (or paste a link)
+- DevBits: short vertical videos (up to 90 seconds) in a full-screen swipe feed, on their own tab and on profiles
 - Like, comment and save posts; saves are private to each user
 - User profiles with avatar, bio and website
 - Follow and unfollow
@@ -81,7 +82,7 @@ SMOKE_BASE_URL=https://devgram-nine.vercel.app SMOKE_DB=<production database> np
 
 Both refuse to start when the target's newest post is missing from the database cleanup would use.
 
-The smoke test's photos and videos sections, and the phone check's upload and playback checks, upload real files and remove them through the Blob and Mux keys in `.env.local`. They skip themselves when those keys are missing; run them only against a server that uses the same Blob store and Mux account.
+The smoke test's photos, videos and devbits sections, and the phone check's upload and playback checks, upload real files and remove them through the Blob and Mux keys in `.env.local`. They skip themselves when those keys are missing; run them only against a server that uses the same Blob store and Mux account.
 
 ## Installable app (PWA)
 
@@ -128,7 +129,7 @@ POST   /api/auth/register            Register, returns a token
 POST   /api/auth/login               Log in, returns a token
 
 GET    /api/posts                    All posts, newest first
-POST   /api/posts                 🔒 Create a post
+POST   /api/posts                 🔒 Create a post (kind "devbit" for a DevBit)
 GET    /api/posts/:id                One post
 DELETE /api/posts/:id             🔒 Delete your post
 POST   /api/posts/:id/like        🔒 Toggle like
@@ -136,6 +137,7 @@ POST   /api/posts/:id/save        🔒 Toggle save
 GET    /api/posts/:id/comments       Comments on a post
 POST   /api/posts/:id/comments    🔒 Add a comment
 GET    /api/posts/similar/:id        Similar posts
+GET    /api/devbits                  DevBits, shuffled (?user= for one person's, newest first)
 
 POST   /api/uploads/image         🔒 Token to upload one photo to Blob
 POST   /api/uploads/video         🔒 One-time Mux address to upload a video to
