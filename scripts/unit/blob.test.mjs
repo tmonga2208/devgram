@@ -1,15 +1,7 @@
 import { after, test } from "node:test"
 import assert from "node:assert/strict"
 import { createServer } from "node:http"
-import { registerHooks } from "node:module"
-
-// lib/blob.ts imports through the app's "@/" path alias.
-registerHooks({
-  resolve(specifier, context, nextResolve) {
-    if (!specifier.startsWith("@/")) return nextResolve(specifier, context)
-    return nextResolve(new URL(`../../${specifier.slice(2)}.ts`, import.meta.url).href, context)
-  },
-})
+import "./app-alias.mjs"
 
 // A Blob API that takes requests and never answers them.
 const silent = createServer(() => {})

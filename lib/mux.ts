@@ -66,10 +66,12 @@ export function publicPlaybackId(asset: MuxAsset) {
 }
 
 // Removes a video from Mux. One that is already gone counts as removed; other
-// failures are logged, since the post that used it is already deleted.
+// failures are logged, since the post that used it is already deleted. One
+// attempt of at most 5 seconds, so a slow or unreachable Mux can't hold up
+// the request (the SDK would otherwise wait a minute, three times over).
 export async function deleteVideoAsset(assetId: string) {
   try {
-    await mux().video.assets.delete(assetId)
+    await mux().video.assets.delete(assetId, { timeout: 5000, maxRetries: 0 })
   } catch (error) {
     if (!(error instanceof NotFoundError)) console.error("Could not delete video", assetId, error)
   }
