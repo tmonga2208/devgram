@@ -752,6 +752,83 @@ const sections = {
     await api("DELETE", `/api/posts/${videoPost.data?._id}`, { token: a.token })
     check("deleting the post deletes its video from Mux", typeof assetId === "string" && !(await muxAssetExists(assetId)))
   },
+
+  async devbits() {
+    if (!process.env.MUX_TOKEN_ID) {
+      console.log("  skip devbits (MUX_TOKEN_ID is not set)")
+      return
+    }
+    await ensureUsers()
+    const { a, b } = state
+
+    // A ready upload to post as a DevBit.
+    const created = await api("POST", "/api/uploads/video", { token: a.token })
+    await putFile(created.data.url, CLIP_FIXTURE)
+    const ready = await waitForUpload(a, created.data.uploadId)
+    check("the DevBit clip is ready", ready.status === "ready", JSON.stringify(ready))
+    const uploadId = created.data.uploadId
+
+    const noVideo = await api("POST", "/api/posts", { token: a.token, body: { caption: `bit ${run}`, kind: "devbit" } })
+    check("a DevBit without an uploaded video is 400", noVideo.status === 400, `status ${noVideo.status}`)
+    const withPhoto = await api("POST", "/api/posts", {
+      token: a.token,
+      body: { caption: `bit ${run}`, kind: "devbit", videoUploadId: uploadId, image: "https://example.com/a.png" },
+    })
+    check("a DevBit with a photo is 400", withPhoto.status === 400, `status ${withPhoto.status}`)
+    const withCode = await api("POST", "/api/posts", {
+      token: a.token,
+      body: { caption: `bit ${run}`, kind: "devbit", videoUploadId: uploadId, code: "let x = 1" },
+    })
+    check("a DevBit with code is 400", withCode.status === 400, `status ${withCode.status}`)
+    const unknownKind = await api("POST", "/api/posts", { token: a.token, body: { caption: `odd ${run}`, kind: "reel", code: "let x = 1" } })
+    check("an unknown kind is 400", unknownKind.status === 400, `status ${unknownKind.status}`)
+
+    const bit = await api("POST", "/api/posts", { token: a.token, body: { caption: `devbit ${run}`, kind: "devbit", videoUploadId: uploadId } })
+    const bitId = bit.data?._id
+    check(
+      "posting a DevBit is 201 with its kind and video",
+      bit.status === 201 && bit.data?.kind === "devbit" && bit.data?.muxVideo?.playbackId === ready.playbackId,
+      `status ${bit.status} ${bit.text.slice(0, 160)}`,
+    )
+
+    // A regular post by the same person: its similar posts would include the DevBit without the filter.
+    const regular = await api("POST", "/api/posts", { token: a.token, body: { caption: `regular ${run}`, code: "let y = 2", language: "javascript" } })
+    const feed = await api("GET", "/api/posts")
+    check("the posts feed leaves DevBits out", typeof bitId === "string" && Array.isArray(feed.data) && !feed.data.some((post) => post._id === bitId))
+    const similar = await api("GET", `/api/posts/similar/${regular.data?._id}`)
+    check("similar posts leave DevBits out", typeof bitId === "string" && Array.isArray(similar.data) && !similar.data.some((post) => post._id === bitId))
+    const found = await api("GET", `/api/search?q=${encodeURIComponent(`devbit ${run}`)}&type=posts`)
+    check(
+      "search leaves DevBits out",
+      typeof bitId === "string" && Array.isArray(found.data?.posts) && !found.data.posts.some((post) => post._id === bitId),
+    )
+
+    const devbits = await api("GET", "/api/devbits")
+    check("the DevBits feed has the DevBit", Array.isArray(devbits.data) && devbits.data.some((post) => post._id === bitId), `status ${devbits.status}`)
+    check("the DevBits feed has nothing but DevBits", Array.isArray(devbits.data) && devbits.data.every((post) => post.kind === "devbit"))
+    const mine = await api("GET", `/api/devbits?user=${names.a}`)
+    check(
+      "one person's DevBits are listed",
+      Array.isArray(mine.data) && mine.data.some((post) => post._id === bitId) && mine.data.every((post) => post.author.username === names.a),
+    )
+    const theirs = await api("GET", `/api/devbits?user=${names.b}`)
+    check("someone else's list leaves them out", Array.isArray(theirs.data) && !theirs.data.some((post) => post._id === bitId))
+
+    const liked = await api("POST", `/api/posts/${bitId}/like`, { token: b.token })
+    check("a DevBit can be liked", liked.status === 200 && liked.data?.likes === 1, `status ${liked.status}`)
+    const commented = await api("POST", `/api/posts/${bitId}/comments`, { token: b.token, body: { text: `nice ${run}` } })
+    check("a DevBit can be commented on", commented.status === 201, `status ${commented.status}`)
+
+    const assetId = bit.data?.muxVideo?.assetId
+    const removed = await api("DELETE", `/api/posts/${bitId}`, { token: a.token })
+    check(
+      "deleting a DevBit removes its video from Mux",
+      removed.status === 200 && typeof assetId === "string" && !(await muxAssetExists(assetId)),
+      `status ${removed.status}`,
+    )
+    const gone = await api("GET", `/api/posts/${bitId}`)
+    check("a deleted DevBit is gone", typeof bitId === "string" && gone.status === 404, `status ${gone.status}`)
+  },
 }
 
 async function cleanup() {

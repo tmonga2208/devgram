@@ -47,6 +47,7 @@ export interface PostType {
   video?: string
   code?: string
   language?: string
+  kind?: "post" | "devbit"
   muxVideo?: {
     assetId: string
     playbackId: string

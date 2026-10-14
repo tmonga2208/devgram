@@ -4,6 +4,7 @@ import Post from "@/models/Post"
 import { getAuthUser } from "@/lib/auth"
 import { handleRouteError, isValidId, jsonError } from "@/lib/http"
 import { toPublicPost } from "@/lib/post-response"
+import { withoutDevBits } from "@/lib/post-kinds"
 
 const SIMILAR_LIMIT = 6
 
@@ -23,12 +24,12 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     const { author, language } = current as { author: { username: string }; language?: string }
 
     const sameLanguage = language
-      ? await Post.find({ _id: { $ne: id }, language }).sort({ createdAt: -1 }).limit(SIMILAR_LIMIT).lean()
+      ? await Post.find(withoutDevBits({ _id: { $ne: id }, language })).sort({ createdAt: -1 }).limit(SIMILAR_LIMIT).lean()
       : []
     const taken = [id, ...sameLanguage.map((post) => String(post._id))]
     const sameAuthor =
       sameLanguage.length < SIMILAR_LIMIT
-        ? await Post.find({ _id: { $nin: taken }, "author.username": author.username })
+        ? await Post.find(withoutDevBits({ _id: { $nin: taken }, "author.username": author.username }))
             .sort({ createdAt: -1 })
             .limit(SIMILAR_LIMIT - sameLanguage.length)
             .lean()

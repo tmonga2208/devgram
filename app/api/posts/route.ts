@@ -6,15 +6,16 @@ import { getAuthUser, requireAuth } from '@/lib/auth';
 import { LIMITS, handleRouteError, isHttpUrl, jsonError, readJson } from '@/lib/http';
 import { notifyMentions } from '@/lib/notifications';
 import { toPublicPost } from '@/lib/post-response';
-import { VIDEO_TOO_LONG, videoAssetProblem } from '@/lib/media-rules';
+import { DEVBIT_LENGTH, VIDEO_LENGTH, videoAssetProblem } from '@/lib/media-rules';
+import { isPostKind, withoutDevBits } from '@/lib/post-kinds';
 import { deleteVideoAsset, findVideoUpload, publicPlaybackId } from '@/lib/mux';
 
-// Get all posts, newest first
+// All regular posts, newest first. DevBits have their own feed (/api/devbits).
 export async function GET(req: Request) {
   try {
     const viewer = await getAuthUser(req);
     await connectToDatabase();
-    const posts = await Post.find().sort({ createdAt: -1 }).lean();
+    const posts = await Post.find(withoutDevBits()).sort({ createdAt: -1 }).lean();
     return NextResponse.json(posts.map((post) => toPublicPost(post, viewer)));
   } catch (error) {
     return handleRouteError(error, 'Get posts error', 'Failed to get posts');
@@ -58,6 +59,12 @@ export async function POST(req: Request) {
     if (video && !isHttpUrl(video)) return jsonError('Video must be an http(s) URL', 400);
     const videoUploadId = optionalString(body.videoUploadId);
     if (videoUploadId && video) return jsonError('Choose either an uploaded video or a video link', 400);
+    const kind = body.kind ?? 'post';
+    if (!isPostKind(kind)) return jsonError('Kind must be "post" or "devbit"', 400);
+    if (kind === 'devbit') {
+      if (!videoUploadId) return jsonError('A DevBit needs an uploaded video', 400);
+      if (image || video || code) return jsonError('A DevBit is a video and a caption only', 400);
+    }
 
     await connectToDatabase();
 
@@ -73,10 +80,11 @@ export async function POST(req: Request) {
           ? jsonError('This video could not be processed', 400)
           : jsonError('This video is still uploading', 409);
       }
-      const problem = videoAssetProblem(upload.asset, auth.id);
+      const length = kind === 'devbit' ? DEVBIT_LENGTH : VIDEO_LENGTH;
+      const problem = videoAssetProblem(upload.asset, auth.id, length);
       if (problem) {
         // A video over the limit can never be posted, so it is not kept.
-        if (problem.message === VIDEO_TOO_LONG) await deleteVideoAsset(upload.asset.id);
+        if (problem.message === length.message) await deleteVideoAsset(upload.asset.id);
         return jsonError(problem.message, problem.status);
       }
       if (await Post.exists({ 'muxVideo.assetId': upload.asset.id })) {
@@ -96,6 +104,7 @@ export async function POST(req: Request) {
         avatar: (author as { avatar?: string }).avatar || '/placeholder.svg',
       },
       caption,
+      kind,
       image,
       video,
       muxVideo,

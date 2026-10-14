@@ -4,6 +4,7 @@ import { getAuthUser } from "@/lib/auth"
 import { handleRouteError, jsonError } from "@/lib/http"
 import { toPublicPost } from "@/lib/post-response"
 import { escapeRegex } from "@/lib/regex"
+import { withoutDevBits } from "@/lib/post-kinds"
 import User from "@/models/User"
 import Post from "@/models/Post"
 
@@ -30,9 +31,11 @@ export async function GET(req: Request) {
     }
 
     if (type === "all" || type === "posts") {
-      const posts = await Post.find({
-        $or: [{ caption: searchRegex }, { "author.username": searchRegex }, { "comments.text": searchRegex }],
-      })
+      const posts = await Post.find(
+        withoutDevBits({
+          $or: [{ caption: searchRegex }, { "author.username": searchRegex }, { "comments.text": searchRegex }],
+        }),
+      )
         .sort({ createdAt: -1 })
         .limit(10)
         .lean()
