@@ -11,6 +11,7 @@ export interface NewPost {
   code?: string;
   language?: string;
   videoUploadId?: string;
+  kind?: 'post' | 'devbit';
 }
 
 interface PostsContextType {
@@ -18,7 +19,7 @@ interface PostsContextType {
   loading: boolean;
   error: string | null;
   fetchPosts: () => Promise<void>;
-  createPost: (data: NewPost) => Promise<void>;
+  createPost: (data: NewPost) => Promise<PostType>;
   likePost: (postId: string) => Promise<PostType>;
   savePost: (postId: string) => Promise<PostType>;
   addComment: (postId: string, text: string) => Promise<CommentType>;
@@ -78,7 +79,9 @@ export function PostsProvider({ children }: { children: ReactNode }) {
 
   const createPost = async (data: NewPost) => {
     const newPost = await parseOrThrow<PostType>(await postJson('/api/posts', data), 'Failed to create post');
-    setPosts(prevPosts => [newPost, ...prevPosts]);
+    // DevBits have their own feed; the Home list holds regular posts only.
+    if (newPost.kind !== 'devbit') setPosts(prevPosts => [newPost, ...prevPosts]);
+    return newPost;
   };
 
   const likePost = async (postId: string) => {

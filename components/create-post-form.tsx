@@ -3,7 +3,7 @@
 import type React from "react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
-import { Code, ImageIcon, VideoIcon } from "lucide-react"
+import { Clapperboard, Code, ImageIcon, VideoIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -18,14 +18,18 @@ import { usePhotoUpload } from "@/hooks/use-photo-upload"
 import { useVideoUpload } from "@/hooks/use-video-upload"
 import type { NewPost } from "@/contexts/posts-context"
 import { UPLOAD_FAILED } from "@/lib/upload-client"
+import { DEVBIT_LENGTH } from "@/lib/media-rules"
 import toast from "react-hot-toast"
 
-export function CreatePostForm() {
+const TABS = ["image", "video", "code", "devbit"]
+
+// initialTab opens a tab other than Image, as /create?tab=devbit does.
+export function CreatePostForm({ initialTab }: { initialTab?: string }) {
   const router = useRouter()
   const { createPost } = usePosts()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState("")
-  const [activeTab, setActiveTab] = useState("image")
+  const [activeTab, setActiveTab] = useState(initialTab && TABS.includes(initialTab) ? initialTab : "image")
   const [caption, setCaption] = useState("")
   const [code, setCode] = useState("")
   const [language, setLanguage] = useState("javascript")
@@ -34,6 +38,7 @@ export function CreatePostForm() {
   const { photo, select: selectPhoto, clear: clearPhoto } = usePhotoUpload("post")
   const photoBusy = photo !== null && photo.url === null && photo.error === null
   const { video: upload, select: selectVideo, clear: clearVideo } = useVideoUpload()
+  const { video: bit, select: selectBit, clear: clearBit } = useVideoUpload(DEVBIT_LENGTH)
   // Post was pressed before the video was ready: publish as soon as it is.
   // Removing or replacing the video, or switching tabs, cancels that.
   const [publishWhenReady, setPublishWhenReady] = useState(false)
@@ -51,8 +56,8 @@ export function CreatePostForm() {
           success: "Post created successfully!",
           error: (err) => `Failed to create post: ${err.message}`,
         })
-        await promise
-        router.push("/")
+        const created = await promise
+        router.push(created.kind === "devbit" ? `/devbits/${created._id}` : "/")
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to create post")
         publishing.current = false
@@ -65,19 +70,24 @@ export function CreatePostForm() {
 
   useEffect(() => {
     if (!publishWhenReady) return
-    if (!upload) {
+    const waiting = activeTab === "devbit" ? bit : upload
+    if (!waiting) {
       // The video is gone (removed, or a link typed instead): nothing to wait for.
       setPublishWhenReady(false)
       return
     }
-    if (upload.phase === "ready" && upload.uploadId) {
+    if (waiting.phase === "ready" && waiting.uploadId) {
       setPublishWhenReady(false)
-      publish({ caption, videoUploadId: upload.uploadId })
-    } else if (upload.phase === "failed") {
+      publish(
+        activeTab === "devbit"
+          ? { caption, videoUploadId: waiting.uploadId, kind: "devbit" }
+          : { caption, videoUploadId: waiting.uploadId },
+      )
+    } else if (waiting.phase === "failed") {
       setPublishWhenReady(false)
-      setError(upload.error || UPLOAD_FAILED)
+      setError(waiting.error || UPLOAD_FAILED)
     }
-  }, [publishWhenReady, upload, caption, publish])
+  }, [publishWhenReady, activeTab, upload, bit, caption, publish])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -96,6 +106,12 @@ export function CreatePostForm() {
       }
       if (!videoUrl.trim()) return setError("Choose a video or paste a video link")
       return publish({ caption, video: videoUrl.trim() })
+    }
+    if (activeTab === "devbit") {
+      if (!bit) return setError("Choose a video for your DevBit")
+      if (bit.phase === "failed") return setError(bit.error || UPLOAD_FAILED)
+      if (bit.phase !== "ready" || !bit.uploadId) return setPublishWhenReady(true)
+      return publish({ caption, videoUploadId: bit.uploadId, kind: "devbit" })
     }
     if (!code) return setError("Code is required for code posts")
     return publish({ caption, code, language })
@@ -124,7 +140,7 @@ export function CreatePostForm() {
               }}
               className="w-full"
             >
-              <TabsList className="grid w-full grid-cols-3">
+              <TabsList className="grid w-full grid-cols-4">
                 <TabsTrigger value="image" className="flex items-center gap-2">
                   <ImageIcon className="h-4 w-4" />
                   Image
@@ -136,6 +152,10 @@ export function CreatePostForm() {
                 <TabsTrigger value="code" className="flex items-center gap-2">
                   <Code className="h-4 w-4" />
                   Code
+                </TabsTrigger>
+                <TabsTrigger value="devbit" className="flex items-center gap-2">
+                  <Clapperboard className="h-4 w-4" />
+                  DevBit
                 </TabsTrigger>
               </TabsList>
               <TabsContent value="image" className="mt-4 space-y-4">
@@ -234,6 +254,32 @@ export function CreatePostForm() {
                     required={activeTab === "code"}
                   />
                 </div>
+              </TabsContent>
+              <TabsContent value="devbit" className="mt-4 space-y-4">
+                <MediaPicker
+                  kind="video"
+                  previewUrl={bit?.previewUrl ?? null}
+                  progress={bit?.phase === "uploading" ? bit.progress : null}
+                  status={
+                    bit?.phase === "uploading"
+                      ? `Uploading ${Math.round(bit.progress)}%`
+                      : bit?.phase === "processing"
+                        ? "Processing video…"
+                        : bit?.phase === "ready"
+                          ? "Video ready"
+                          : null
+                  }
+                  error={bit?.error ?? null}
+                  onSelect={(file) => {
+                    setPublishWhenReady(false)
+                    selectBit(file)
+                  }}
+                  onClear={() => {
+                    setPublishWhenReady(false)
+                    clearBit()
+                  }}
+                />
+                <p className="text-sm text-muted-foreground">Up to 90 seconds. Vertical videos fill the screen.</p>
               </TabsContent>
             </Tabs>
             <div className="mt-4 space-y-2">

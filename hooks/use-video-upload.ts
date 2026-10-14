@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useAuth } from "@/contexts/auth-context"
-import { MAX_VIDEO_BYTES, MAX_VIDEO_SECONDS } from "@/lib/media-rules"
+import { MAX_VIDEO_BYTES, VIDEO_LENGTH, type LengthLimit } from "@/lib/media-rules"
 import { UPLOAD_FAILED, getVideoStatus, readVideoDuration, requestVideoUpload } from "@/lib/upload-client"
 
 const POLL_MS = 2000
@@ -20,7 +20,9 @@ export interface VideoUploadState {
 
 // Uploads a chosen video to Mux straight away, then waits until Mux has
 // processed it. Choosing again, clearing or leaving the page cancels it.
-export function useVideoUpload() {
+// length is how long the video may be: 2 minutes for video posts, 90
+// seconds for DevBits.
+export function useVideoUpload(length: LengthLimit = VIDEO_LENGTH) {
   const { authFetch } = useAuth()
   const [video, setVideo] = useState<VideoUploadState | null>(null)
   const current = useRef<{ cancel: () => void; previewUrl: string } | null>(null)
@@ -59,7 +61,7 @@ export function useVideoUpload() {
       if (file.size > MAX_VIDEO_BYTES) return fail("Videos must be 200 MB or smaller.")
       const seconds = await readVideoDuration(file)
       if (current.current !== attempt) return
-      if (seconds !== null && seconds > MAX_VIDEO_SECONDS) return fail("Videos can be at most 2 minutes long.")
+      if (seconds !== null && seconds > length.seconds) return fail(`${length.message}.`)
 
       try {
         const { uploadId, url } = await requestVideoUpload(authFetch, abort.signal)
@@ -91,7 +93,7 @@ export function useVideoUpload() {
         if (!abort.signal.aborted) fail(UPLOAD_FAILED)
       }
     },
-    [authFetch, clear],
+    [authFetch, clear, length],
   )
 
   useEffect(() => clear, [clear])

@@ -678,6 +678,49 @@ async function main() {
       )
     }
 
+    console.log("\n[devbit posting]")
+    if (!process.env.MUX_TOKEN_ID) {
+      console.log("  skip devbit posting (MUX_TOKEN_ID is not set)")
+    } else {
+      const input = 'main input[type="file"][accept^="video"]'
+      await open(page, "/devbits")
+      await page.evaluate(click(`document.querySelector('a[aria-label="Post a DevBit"]')`))
+      check(
+        "devbits: the + button opens Create on its DevBit tab",
+        await page.waitFor(
+          `location.pathname === "/create" && document.querySelector('[role="tab"][aria-selected="true"]')?.textContent.includes("DevBit")`,
+          { timeout: 10000 },
+        ),
+      )
+      await tabRowChecks(page, "create", 4)
+      const chooser = await page.evaluate(buttonHeight("Choose video"))
+      check(`create: the DevBit tab's Choose video button is at least ${TAP_TARGET}px tall`, chooser >= TAP_TARGET, `height ${chooser}px`)
+
+      await page.setInputFiles(input, [fixture("clip-95s.mp4")])
+      check(
+        "create: a DevBit over 90 seconds is refused before uploading",
+        await page.waitFor(`document.querySelector("main").textContent.includes("DevBits can be at most 90 seconds long.")`, { timeout: 15000 }),
+      )
+
+      await page.setInputFiles(input, [fixture("clip-2s.mp4")])
+      const caption = `posted devbit ${run}`
+      await page.type("#caption", caption)
+      await page.evaluate(click(`[...document.querySelectorAll("main button")].find((b) => b.textContent.trim() === "Post")`))
+      const landed = await page.waitFor(`location.pathname.startsWith("/devbits/")`, { timeout: 180000 })
+      check(
+        "create: posting a DevBit lands on it in the DevBits screen",
+        landed && (await page.waitFor(`document.querySelector("[data-devbit]")?.textContent.includes(${JSON.stringify(caption)})`, { timeout: 15000 })),
+      )
+      // Through the tab bar, so the Home list is the one already in memory.
+      await page.evaluate(click(`document.querySelector('nav[aria-label="Primary"] a[href="/"]')`))
+      await page.waitFor(`location.pathname === "/" && !document.querySelector(".animate-pulse")`, { timeout: 15000 })
+      await sleep(500)
+      check(
+        "home: a new DevBit stays out of the Home feed",
+        !(await page.evaluate(`document.querySelector("main").textContent.includes(${JSON.stringify(caption)})`)),
+      )
+    }
+
     console.log("\n[photo upload]")
     if (!process.env.BLOB_READ_WRITE_TOKEN) {
       console.log("  skip photo upload (BLOB_READ_WRITE_TOKEN is not set)")
