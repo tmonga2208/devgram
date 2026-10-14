@@ -6,7 +6,7 @@ Live at **https://devgram-nine.vercel.app**.
 
 ## Features
 
-- Feed of image, video and syntax-highlighted code posts
+- Feed of photo, video and syntax-highlighted code posts; photos upload from your device (or paste a link)
 - Like, comment and save posts; saves are private to each user
 - User profiles with avatar, bio and website
 - Follow and unfollow
@@ -39,6 +39,7 @@ Create `.env.local` in the project root:
 ```bash
 MONGODB_URI=your_mongodb_connection_string
 JWT_SECRET=a_long_random_string
+BLOB_READ_WRITE_TOKEN=from_vercel_blob
 ```
 
 `JWT_SECRET` signs login tokens. Generate one with `openssl rand -hex 32`.
@@ -61,6 +62,7 @@ Open http://localhost:3000 and register an account.
 | `npm run build` | production build |
 | `npm run lint` | ESLint |
 | `npm run typecheck` | TypeScript, no emit |
+| `npm run test:unit` | unit tests for the upload rules |
 | `npm run smoke` | end-to-end API test against the running dev server |
 | `npm run mobile-check` | layout check of every page at phone width, in headless Chrome |
 
@@ -75,6 +77,8 @@ SMOKE_BASE_URL=https://devgram-nine.vercel.app SMOKE_DB=<production database> np
 
 Both refuse to start when the target's newest post is missing from the database cleanup would use.
 
+The smoke test's photos section and the phone check's photo upload upload real files and remove them through the Blob key in `.env.local`. They skip themselves when that key is missing; run them only against a server that uses the same Blob store.
+
 ## Installable app (PWA)
 
 DevGram can be installed from the browser: "Install" in Chrome and Edge, "Add to Home Screen" on iOS and Android.
@@ -82,6 +86,18 @@ DevGram can be installed from the browser: "Install" in Chrome and Edge, "Add to
 - `app/manifest.ts` describes the app. The icons are in `public/icons/` and `app/apple-icon.png`.
 - `public/sw.js` is the service worker. It is registered in production builds only, so `npm run dev` never runs behind a cache. It caches build assets and icons, and shows `/offline` when a page cannot be loaded. It never caches API responses.
 - The PNG icons are rendered from `app/icon.svg` and `public/icons/icon-maskable.svg`. To change the logo, edit those two files and render them again, for example `rsvg-convert -w 512 -h 512 app/icon.svg -o public/icons/icon-512.png`.
+
+## Photo uploads
+
+Photos (post images and profile pictures) go to [Vercel Blob](https://vercel.com/docs/vercel-blob). The browser uploads straight to Blob with a short-lived token from `/api/uploads/image`, so files never pass through a Vercel Function.
+
+Setup for a new deployment:
+
+1. `vercel blob create-store devgram-media --access public --environment production --environment preview --yes`
+2. `vercel blob create-store devgram-media-dev --access public --environment development --yes` (a separate store for local work). This also rewrites `.env.local` with the Development variables, so check your own values afterwards.
+3. On another machine, copy `BLOB_READ_WRITE_TOKEN` from `vercel env pull some-file --environment=development` into `.env.local`. Don't pull straight onto `.env.local`: that replaces the whole file.
+
+Limits: photos up to 10 MB (JPEG, PNG, WebP, GIF), shrunk in the browser to 2048px when bigger than that or 2 MB. Deleting a post deletes its uploaded photo, and changing your profile picture deletes the old upload.
 
 ## Folder structure
 
@@ -115,6 +131,8 @@ GET    /api/posts/:id/comments       Comments on a post
 POST   /api/posts/:id/comments    🔒 Add a comment
 GET    /api/posts/similar/:id        Similar posts
 
+POST   /api/uploads/image         🔒 Token to upload one photo to Blob
+
 GET    /api/users/:username          Public profile
 POST   /api/users/:username/follow 🔒 Toggle follow
 GET    /api/users/profile         🔒 Your account and settings
@@ -133,7 +151,7 @@ GET    /api/health                   Database connectivity check
 
 ## Not yet built
 
-- Image and avatar upload (posts and avatars take a URL today)
+- Video upload (video posts take a link today)
 - Tags and tag-based explore
 - Skills and GitHub link on profiles
 - Admin dashboard for moderation and analytics

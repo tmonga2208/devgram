@@ -110,6 +110,7 @@ The service worker needs no change: Blob and Mux URLs are on other origins, whic
 ## Known gaps
 
 - A video that reaches Mux but is never posted (the user left during processing, or the post was refused) stays in Mux. A cleanup script that removes assets no post refers to is a possible follow-up.
+- A photo uploaded on the Create screen or in Settings that is never posted or saved stays in its owner's Blob folder.
 - Uploaded files are public to anyone with the link, like everything posted today.
 - The Hobby plan includes 1 GB of Blob storage and 10 GB of Blob downloads a month. If the live site goes past that, Blob stops serving files for 30 days unless the plan is upgraded. Shrinking photos before upload keeps typical use far below it. Mux usage is billed through the Vercel account at the plan the user picks when connecting it.
 - Preview deployments share the live site's Blob store and database.
