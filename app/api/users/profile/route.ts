@@ -4,6 +4,7 @@ import User from "@/models/User"
 import Post from "@/models/Post"
 import { requireAuth } from "@/lib/auth"
 import { LIMITS, handleRouteError, isHttpUrl, jsonError, readJson } from "@/lib/http"
+import { deleteOwnPhoto } from "@/lib/blob"
 import {
   NOTIFICATION_DEFAULTS,
   PRIVACY_DEFAULTS,
@@ -138,6 +139,8 @@ export async function PATCH(req: Request) {
           { arrayFilters: [{ "own.username": user.username }], timestamps: false }
         ),
       ])
+      // The replaced picture is no longer used anywhere.
+      await deleteOwnPhoto(previousAvatar, "avatar", auth.id)
     }
 
     return NextResponse.json(toPrivateUser(user))

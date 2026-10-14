@@ -625,6 +625,33 @@ const sections = {
       () => false,
     )
     check("an upload pass cannot write to another path", !elsewhere)
+
+    const { b } = state
+    const post = await api("POST", "/api/posts", { token: a.token, body: { caption: `uploaded photo ${run}`, image: uploaded.url } })
+    check("a post can use an uploaded photo", post.status === 201 && post.data?.image === uploaded.url, `status ${post.status}`)
+    await api("DELETE", `/api/posts/${post.data?._id}`, { token: a.token })
+    check("deleting the post deletes its uploaded photo", !(await blobExists(uploaded.url)))
+
+    const lent = await uploadTestPhoto(a, "post")
+    const borrowed = await api("POST", "/api/posts", { token: b.token, body: { caption: `borrowed ${run}`, image: lent } })
+    await api("DELETE", `/api/posts/${borrowed.data?._id}`, { token: b.token })
+    check("deleting a post that borrowed someone's photo keeps the photo", await blobExists(lent))
+
+    const first = await uploadTestPhoto(a, "avatar")
+    const second = await uploadTestPhoto(a, "avatar")
+    await api("PATCH", "/api/users/profile", { token: a.token, body: { avatar: first } })
+    const replaced = await api("PATCH", "/api/users/profile", { token: a.token, body: { avatar: second } })
+    check("a new uploaded profile picture is saved", replaced.status === 200 && replaced.data?.avatar === second, `status ${replaced.status}`)
+    check("the old profile picture is deleted", !(await blobExists(first)))
+    await api("PATCH", "/api/users/profile", { token: b.token, body: { avatar: second } })
+    await api("PATCH", "/api/users/profile", { token: b.token, body: { avatar: "" } })
+    check("clearing a borrowed profile picture keeps the owner's file", await blobExists(second))
+    const cleared = await api("PATCH", "/api/users/profile", { token: a.token, body: { avatar: "" } })
+    check(
+      "clearing your own profile picture deletes it",
+      cleared.data?.avatar === "/placeholder.svg" && !(await blobExists(second)),
+      `avatar ${cleared.data?.avatar}`,
+    )
   },
 }
 
