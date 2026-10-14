@@ -119,11 +119,14 @@ export async function launchBrowser() {
       },
 
       // Runs an expression in the page and returns its JSON-serialisable value.
-      async evaluate(expression) {
+      // userGesture makes it count as a tap, which browsers want before they
+      // play video with sound.
+      async evaluate(expression, { userGesture = false } = {}) {
         const { result, exceptionDetails } = await cdp("Runtime.evaluate", {
           expression,
           returnByValue: true,
           awaitPromise: true,
+          userGesture,
         })
         if (exceptionDetails) {
           throw new Error(exceptionDetails.exception?.description || exceptionDetails.text)

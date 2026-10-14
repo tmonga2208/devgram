@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { Compass, Home, PlusSquare, User } from "lucide-react"
+import { Clapperboard, Compass, Home, PlusSquare, User } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useAuth } from "@/contexts/auth-context"
 
@@ -13,6 +13,7 @@ export function mobileTabs(username?: string) {
     { label: "Home", href: "/", icon: Home },
     { label: "Explore", href: "/explore", icon: Compass },
     { label: "Create", href: "/create", icon: PlusSquare },
+    { label: "DevBits", href: "/devbits", icon: Clapperboard },
     { label: "Profile", href: username ? `/profile/${username}` : "/login", icon: User },
   ]
 }

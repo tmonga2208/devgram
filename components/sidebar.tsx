@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
-import { Home, Search, Compass, MessageSquare, Heart, PlusSquare, User, Settings } from "lucide-react"
+import { Home, Search, Compass, Clapperboard, MessageSquare, Heart, PlusSquare, User, Settings } from "lucide-react"
 import { useAuth } from "@/contexts/auth-context"
 
 interface SidebarProps {
@@ -32,6 +32,12 @@ export function Sidebar({ className }: SidebarProps) {
           <Button variant="ghost" className="w-full justify-start gap-2">
             <Compass className="h-5 w-5" />
             <span>Explore</span>
+          </Button>
+        </Link>
+        <Link href="/devbits">
+          <Button variant="ghost" className="w-full justify-start gap-2">
+            <Clapperboard className="h-5 w-5" />
+            <span>DevBits</span>
           </Button>
         </Link>
         <Link href="/direct">

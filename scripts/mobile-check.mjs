@@ -57,6 +57,21 @@ async function api(method, route, token, body) {
   return data
 }
 
+// Uploads the 2-second test clip for that account, waits until Mux has it
+// ready, and posts it with the given fields. Returns the new post's id.
+async function postClip(session, fields) {
+  const { uploadId, url } = await api("POST", "/api/uploads/video", session.token)
+  const put = await fetch(url, { method: "PUT", body: await readFile(fixture("clip-2s.mp4")) })
+  if (!put.ok) throw new Error(`upload to Mux answered ${put.status}`)
+  for (let attempt = 0; attempt < 60; attempt++) {
+    const { status } = await api("GET", `/api/uploads/video/${uploadId}`, session.token)
+    if (status === "ready") break
+    if (status === "failed") throw new Error("Mux could not process the test clip")
+    await sleep(2000)
+  }
+  return (await api("POST", "/api/posts", session.token, { ...fields, videoUploadId: uploadId }))._id
+}
+
 // Two accounts with enough content to fill every page: posts of each kind, a
 // follow, a like, a comment and a conversation.
 async function seed() {
@@ -91,21 +106,20 @@ async function seed() {
   }
   await api("POST", "/api/messages", a.token, { receiver: names.b, content: "better than before" })
 
-  // A posted Mux video, for the playback and thumbnail checks.
+  // Mux videos for the playback checks: a video post, and three DevBits.
   let videoPostId = null
+  let devbits = null
   if (process.env.MUX_TOKEN_ID) {
-    const { uploadId, url } = await api("POST", "/api/uploads/video", a.token)
-    const put = await fetch(url, { method: "PUT", body: await readFile(fixture("clip-2s.mp4")) })
-    if (!put.ok) throw new Error(`upload to Mux answered ${put.status}`)
-    for (let attempt = 0; attempt < 60; attempt++) {
-      const { status } = await api("GET", `/api/uploads/video/${uploadId}`, a.token)
-      if (status === "ready") break
-      if (status === "failed") throw new Error("Mux could not process the test clip")
-      await sleep(2000)
-    }
-    videoPostId = (await api("POST", "/api/posts", a.token, { caption: `vertical video ${run}`, videoUploadId: uploadId }))._id
+    const [video, one, two, three] = await Promise.all([
+      postClip(a, { caption: `vertical video ${run}` }),
+      postClip(a, { caption: `devbit one ${run}`, kind: "devbit" }),
+      postClip(b, { caption: `devbit two ${run}`, kind: "devbit" }),
+      postClip(a, { caption: `devbit three ${run}`, kind: "devbit" }),
+    ])
+    videoPostId = video
+    devbits = { one, two, three }
   }
-  return { a, b, postId: code._id, videoPostId }
+  return { a, b, postId: code._id, videoPostId, devbits }
 }
 
 // Everything below this point runs inside the page.
@@ -183,6 +197,28 @@ const TAB_ROWS = `(() => {
       ...rect(tab),
     })),
   }))
+})()`
+
+// The DevBits screen: the list, and each DevBit in it with its video's state.
+const DEVBITS_STATE = `(() => {
+  ${HELPERS}
+  const list = document.querySelector("[data-devbits-list]")
+  const slides = list ? [...list.querySelectorAll("[data-devbit]")] : []
+  return {
+    list: list ? rect(list) : null,
+    scrollTop: list ? list.scrollTop : null,
+    slides: slides.map((slide) => {
+      const video = slide.querySelector("mux-video")
+      return {
+        id: slide.getAttribute("data-devbit"),
+        author: slide.getAttribute("data-author"),
+        height: rect(slide).height,
+        playing: Boolean(video && !video.paused),
+        muted: Boolean(video && video.muted),
+        preload: video ? video.preload : null,
+      }
+    }),
+  }
 })()`
 
 const messagesState = (otherUser) => `(() => {
@@ -281,7 +317,7 @@ async function shellChecks(page, label, { back, tabs, current = null, fill = fal
     bar ? `position ${bar.position}, bottom at ${bar.bottom}px of ${m.height}px` : "no tab bar",
   )
   check(
-    `${label}: its tabs are Home, Explore, Create, Profile`,
+    `${label}: its tabs are Home, Explore, Create, DevBits, Profile`,
     bar && bar.links.map((link) => `${link.label}=${link.href}`).join(" ") === tabs,
     bar ? bar.links.map((link) => `${link.label}=${link.href}`).join(" ") : "no tab bar",
   )
@@ -352,8 +388,8 @@ async function main() {
 
   let browser = null
   try {
-    const { a, postId, videoPostId } = await seed()
-    const tabs = `Home=/ Explore=/explore Create=/create Profile=/profile/${names.a}`
+    const { a, b, postId, videoPostId, devbits } = await seed()
+    const tabs = `Home=/ Explore=/explore Create=/create DevBits=/devbits Profile=/profile/${names.a}`
     browser = await launchBrowser()
     const page = await browser.newPage(PHONE)
 
@@ -365,6 +401,13 @@ async function main() {
       "signed out: the Profile tab leads to the login page",
       anonymous.tabBar?.links.find((link) => link.label === "Profile")?.href === "/login",
     )
+    if (devbits) {
+      await open(page, `/devbits/${devbits.one}`)
+      check(
+        "signed out: a DevBit link opens and plays",
+        await page.waitFor(`(() => { const v = document.querySelector("[data-devbit] mux-video"); return Boolean(v && !v.paused) })()`, { timeout: 30000 }),
+      )
+    }
 
     await signIn(page, a)
 
@@ -382,6 +425,8 @@ async function main() {
     await shellChecks(page, "explore", { back: false, tabs, current: "Explore" })
     await open(page, "/create")
     await shellChecks(page, "create", { back: false, tabs, current: "Create" })
+    await open(page, "/devbits")
+    await shellChecks(page, "devbits", { back: false, tabs, current: "DevBits", fill: true })
     await open(page, `/profile/${names.a}`)
     await shellChecks(page, "own profile", { back: false, tabs, current: "Profile" })
     await textChecks(page, "own profile", { "a long username": names.a, "a long link in the bio": LONG_LINK })
@@ -500,6 +545,64 @@ async function main() {
       check("post: a vertical video keeps its vertical shape", player !== null && player.height > player.width, JSON.stringify(player))
       const shell = await page.evaluate(SHELL)
       check("post: a video page fits the width of the screen", fitsScreen(shell, PHONE), widthDetail(shell, PHONE))
+    }
+
+    console.log("\n[devbits]")
+    if (!devbits) {
+      console.log("  skip devbits (MUX_TOKEN_ID is not set)")
+    } else {
+      const list = `document.querySelector("[data-devbits-list]")`
+      const videos = `[...document.querySelectorAll("[data-devbit] mux-video")]`
+      await open(page, `/devbits/${devbits.one}`)
+      check(
+        "devbits: the DevBit on screen plays, muted",
+        await page.waitFor(`(() => { const v = ${videos}[0]; return Boolean(v && !v.paused && v.muted) })()`, { timeout: 30000 }),
+      )
+      const first = await page.evaluate(DEVBITS_STATE)
+      const bars = await page.evaluate(SHELL)
+      await shot(page, "devbits")
+      check("devbits: the linked DevBit comes first", first.slides[0]?.id === devbits.one, first.slides.map((slide) => slide.id).join(", "))
+      check(
+        "devbits: one DevBit fills the space between the bars",
+        Boolean(first.list && bars.header && bars.tabBar) &&
+          Math.abs(first.list.top - bars.header.bottom) <= 1 &&
+          Math.abs(first.list.bottom - bars.tabBar.top) <= 1 &&
+          Math.abs(first.slides[0].height - first.list.height) <= 1,
+        JSON.stringify({ list: first.list, headerBottom: bars.header?.bottom, tabBarTop: bars.tabBar?.top }),
+      )
+      check("devbits: fits the width of the screen", fitsScreen(bars, PHONE), widthDetail(bars, PHONE))
+      check(
+        "devbits: only the next DevBit loads ahead, and only its metadata",
+        first.slides[1]?.preload === "metadata" && first.slides.slice(2).every((slide) => slide.preload === "none"),
+        first.slides.map((slide) => slide.preload).join(", "),
+      )
+
+      await page.evaluate(`${list}.scrollBy({ top: ${list}.clientHeight })`)
+      await sleep(1000)
+      const second = await page.evaluate(DEVBITS_STATE)
+      check(
+        "devbits: scrolling snaps to the next DevBit",
+        Boolean(second.list) && Math.abs(second.scrollTop - second.list.height) <= 1,
+        `scrolled ${second.scrollTop}px of a ${second.list?.height}px screen`,
+      )
+      check(
+        "devbits: only the DevBit on screen plays",
+        await page.waitFor(`(() => { const v = ${videos}; return v.length > 1 && v[0].paused && !v[1].paused })()`, { timeout: 30000 }),
+      )
+
+      await page.evaluate(click(`document.querySelector('main button[aria-label="Turn sound on"]')`), { userGesture: true })
+      check(
+        "devbits: the speaker button turns sound on",
+        await page.waitFor(`(() => { const v = ${videos}[1]; return Boolean(v && !v.muted && !v.paused) })()`, { timeout: 10000 }),
+      )
+      await page.evaluate(`${list}.scrollTo({ top: 0 })`)
+      await sleep(1000)
+      check(
+        "devbits: sound stays on while swiping",
+        await page.waitFor(`(() => { const v = ${videos}[0]; return Boolean(v && !v.muted && !v.paused) })()`, { timeout: 10000 }),
+      )
+      await page.evaluate(click(`document.querySelector("[data-devbit] [data-devbit-video]")`))
+      check("devbits: tapping the video pauses it", await page.waitFor(`${videos}[0]?.paused === true`, { timeout: 5000 }))
     }
 
     console.log("\n[photo upload]")
@@ -648,6 +751,14 @@ async function main() {
     const small = await page.evaluate(SHELL)
     await shot(page, "small-home")
     check("small phone, home: fits the width of the screen", fitsScreen(small, SMALL_PHONE), widthDetail(small, SMALL_PHONE))
+    check(
+      "small phone: all five tabs are at least 44px wide",
+      Boolean(small.tabBar) && small.tabBar.links.length === 5 && small.tabBar.links.every((link) => link.width >= TAP_TARGET),
+      small.tabBar ? small.tabBar.links.map((link) => `${link.label} ${link.width}px`).join(", ") : "no tab bar",
+    )
+    await open(page, "/devbits")
+    const smallDevbits = await page.evaluate(SHELL)
+    check("small phone, devbits: fits the width of the screen", fitsScreen(smallDevbits, SMALL_PHONE), widthDetail(smallDevbits, SMALL_PHONE))
     await open(page, "/notifications")
     await shot(page, "small-notifications")
     await tabRowChecks(page, "small phone, notifications", 5)
@@ -694,6 +805,10 @@ async function main() {
     check("desktop: no back arrow", !desktop.back)
     check("desktop: the sidebar is shown", desktop.sidebar)
     check("desktop: top bar links to Create", desktop.headerLinks.includes("/create"))
+    check(
+      "desktop: the sidebar links to DevBits",
+      await page.evaluate(`[...document.querySelectorAll('a[href="/devbits"]')].some((link) => link.getBoundingClientRect().width > 0 && !link.closest("main"))`),
+    )
   } catch (error) {
     failures++
     console.log(`  FAIL the check stopped early -- ${error.message}`)
