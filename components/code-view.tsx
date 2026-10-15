@@ -1,10 +1,12 @@
 "use client"
 
-import { useState } from "react"
-import { Copy } from "lucide-react"
+import { useCallback, useState } from "react"
+import { Copy, Play, Square } from "lucide-react"
 import toast from "react-hot-toast"
+import { CodeRun } from "@/components/code-run"
 import { HighlightedCode } from "@/components/highlighted-code"
 import { FEED_LINES, displayLines, languageLabel, type CodeFile } from "@/lib/code-files"
+import { runKind } from "@/lib/code-run"
 import { cn } from "@/lib/utils"
 
 export const COPY_FAILED = "Couldn't copy — select the code instead"
@@ -20,11 +22,20 @@ interface CodeViewProps {
 }
 
 // A code post's files, the same in the feed and on the post page: a tab per
-// file (or the one file's name or language), Copy, line numbers and colours.
+// file (or the one file's name or language), Copy, Run where the files can
+// run, line numbers and colours.
 export function CodeView({ files, fold = false }: CodeViewProps) {
   const [active, setActive] = useState(0)
   const [expanded, setExpanded] = useState(false)
   const [copied, setCopied] = useState(false)
+  // Each Run starts a new frame; `running` turns off when a JavaScript run ends.
+  const [run, setRun] = useState<{ id: number; running: boolean } | null>(null)
+  const canRun = runKind(files) !== null
+  const toggleRun = () => setRun((current) => (current?.running ? null : { id: (current?.id ?? 0) + 1, running: true }))
+  const finished = useCallback(
+    (id: number) => setRun((current) => (current?.id === id ? { id, running: false } : current)),
+    [],
+  )
   const current = Math.min(active, files.length - 1)
   const file = files[current]
   const folded = fold && !expanded && displayLines(file.code).length > FEED_LINES
@@ -78,6 +89,21 @@ export function CodeView({ files, fold = false }: CodeViewProps) {
             </>
           )}
         </button>
+        {canRun && (
+          <button type="button" data-run onClick={toggleRun} className={headerButton}>
+            {run?.running ? (
+              <>
+                <Square className="h-4 w-4" />
+                Stop
+              </>
+            ) : (
+              <>
+                <Play className="h-4 w-4" />
+                Run
+              </>
+            )}
+          </button>
+        )}
       </div>
       <HighlightedCode code={file.code} language={file.language} maxLines={folded ? FEED_LINES : undefined} />
       {folded && (
@@ -90,6 +116,7 @@ export function CodeView({ files, fold = false }: CodeViewProps) {
           Show all
         </button>
       )}
+      {run && <CodeRun key={run.id} files={files} onFinish={() => finished(run.id)} />}
     </div>
   )
 }

@@ -126,6 +126,13 @@ async function seed() {
       { name: "", language: "python", code: Array.from({ length: 30 }, (_, i) => `print(${i + 1})`).join("\n") },
     ]),
     legacy: await insertLegacyCodePost(names.a, { caption: `old code post ${run}`, code: "print('stored the old way')", language: "python" }),
+    // Two files that share a name, one log now and one a moment later.
+    script: await codePost("script", [
+      { name: "greet.js", language: "javascript", code: 'const who = "a worker"' },
+      { name: "main.js", language: "javascript", code: 'console.log("hello from " + who)\nsetTimeout(() => console.log("a moment later"), 300)' },
+    ]),
+    loop: await codePost("endless loop", [{ name: "loop.js", language: "javascript", code: "let i = 0\nwhile (true) { i++ }" }]),
+    flood: await codePost("endless logging", [{ name: "flood.js", language: "javascript", code: "let i = 0\nwhile (true) console.log(i++)" }]),
   }
 
   // Mux videos for the playback checks: a video post, and three DevBits.
@@ -562,6 +569,89 @@ async function main() {
       legacy?.code === "print('stored the old way')" && legacy.header.startsWith("Python") && legacy.labels === 1,
       JSON.stringify(legacy),
     )
+
+    console.log("\n[running code]")
+    const runButton = `document.querySelector("main [data-code-view] [data-run]")`
+    const output = `(document.querySelector("main [data-run-output]")?.textContent ?? "")`
+    await open(page, `/p/${codePosts.page}`)
+    check("three-file post: nothing runs until Run is pressed", !(await page.evaluate(`Boolean(document.querySelector("main iframe"))`)))
+    const runHeight = await page.evaluate(`${runButton}?.getBoundingClientRect().height ?? 0`)
+    check(`three-file post: Run is at least ${TAP_TARGET}px tall`, runHeight >= TAP_TARGET, `height ${runHeight}px`)
+    await page.evaluate(click(runButton))
+    const sandbox = await page.evaluate(`document.querySelector("main [data-code-view] iframe")?.getAttribute("sandbox") ?? null`)
+    check('three-file post: Run shows the page in a frame whose sandbox is exactly "allow-scripts"', sandbox === "allow-scripts", JSON.stringify(sandbox))
+    check(
+      "three-file post: the page runs with its CSS and JavaScript",
+      await page.waitFor(`${output}.includes("title colour rgb(255, 0, 0)")`, { timeout: 10000 }),
+    )
+    // Output goes out at most every 100 ms, so the error comes just after the log.
+    await page.waitFor(`document.querySelector('main [data-run-line][data-level="error"]')`, { timeout: 5000 })
+    // Chrome reports Tailwind's colours as lab(lightness a b): red is strongly
+    // coloured, with a hue angle near 25 degrees.
+    const errorLine = await page.evaluate(`(() => {
+      const error = [...document.querySelectorAll('main [data-run-line][data-level="error"]')][0]
+      if (!error) return null
+      const colour = getComputedStyle(error).color
+      const lab = /^lab\\(([\\d.-]+) ([\\d.-]+) ([\\d.-]+)/.exec(colour)
+      return {
+        text: error.textContent,
+        colour,
+        chroma: lab ? Math.hypot(Number(lab[2]), Number(lab[3])) : null,
+        hue: lab ? ((Math.atan2(Number(lab[3]), Number(lab[2])) * 180) / Math.PI + 360) % 360 : null,
+      }
+    })()`)
+    check(
+      "three-file post: the page's errors show in red",
+      errorLine?.text === "ReferenceError: nope is not defined" && errorLine.chroma > 30 && (errorLine.hue < 45 || errorLine.hue > 340),
+      JSON.stringify(errorLine),
+    )
+    check("three-file post: Run turns into Stop", (await page.evaluate(`${runButton}.textContent.trim()`)) === "Stop")
+    await page.evaluate(click(runButton))
+    check("three-file post: Stop removes the running page", await page.waitFor(`!document.querySelector("main [data-code-view] iframe")`, { timeout: 5000 }))
+
+    await open(page, `/p/${codePosts.script}`)
+    await page.evaluate(click(runButton))
+    check(
+      "script post: files share their names, and output that comes a moment later still shows",
+      await page.waitFor(`${output}.includes("hello from a worker") && ${output}.includes("a moment later")`, { timeout: 10000 }),
+    )
+    check("script post: Run comes back once the code has finished", await page.waitFor(`${runButton}.textContent.trim() === "Run"`, { timeout: 5000 }))
+    await sleep(5500)
+    check("script post: a run that finished isn't reported as stopped", !(await page.evaluate(`${output}.includes("Stopped after 5 seconds")`)))
+
+    // While code runs, the page's own timers have to keep firing on time.
+    const runUntilStopped = async (label, id) => {
+      await open(page, `/p/${id}`)
+      await page.evaluate(`(() => {
+        window.__lateBy = 0
+        let last = performance.now()
+        window.__ticker = setInterval(() => {
+          const now = performance.now()
+          window.__lateBy = Math.max(window.__lateBy, now - last - 50)
+          last = now
+        }, 50)
+      })()`)
+      const started = Date.now()
+      await page.evaluate(click(runButton))
+      const stopped = await page.waitFor(`${output}.includes("Stopped after 5 seconds")`, { timeout: 10000 })
+      const seconds = (Date.now() - started) / 1000
+      const state = await page.evaluate(`(() => {
+        clearInterval(window.__ticker)
+        return {
+          lateBy: Math.round(window.__lateBy),
+          lines: document.querySelectorAll("main [data-run-line]").length,
+          frame: Boolean(document.querySelector("main [data-code-view] iframe")),
+          button: ${runButton}.textContent.trim(),
+        }
+      })()`)
+      check(`${label}: stopped after 5 seconds`, stopped && seconds >= 4.5, `${seconds.toFixed(1)}s ${JSON.stringify(state)}`)
+      check(`${label}: the page kept responding`, state.lateBy < 500, `timers ran up to ${state.lateBy}ms late`)
+      check(`${label}: its frame is gone and Run is back`, !state.frame && state.button === "Run", JSON.stringify(state))
+      return state
+    }
+    await runUntilStopped("endless loop", codePosts.loop)
+    const flood = await runUntilStopped("endless logging", codePosts.flood)
+    check("endless logging: the panel keeps at most 200 lines", flood.lines > 1 && flood.lines <= 200, `${flood.lines} lines`)
 
     console.log("\n[messages]")
     await open(page, "/direct")
