@@ -3,13 +3,13 @@
 import { createContext, useCallback, useContext, useState, useEffect, ReactNode } from 'react';
 import { useAuth } from './auth-context';
 import type { PostType, CommentType } from "@/lib/types"
+import type { CodeFile } from '@/lib/code-files';
 
 export interface NewPost {
   caption: string;
   image?: string;
   video?: string;
-  code?: string;
-  language?: string;
+  files?: CodeFile[];
   videoUploadId?: string;
   kind?: 'post' | 'devbit';
 }

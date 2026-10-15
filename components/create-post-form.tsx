@@ -11,7 +11,8 @@ import { cn } from "@/lib/utils"
 import { Textarea } from "@/components/ui/textarea"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { CodeFilesEditor, newDraftFile, type DraftFile } from "@/components/code-files-editor"
+import { parseFiles } from "@/lib/code-files"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { usePosts } from "@/contexts/posts-context"
 import { MediaPicker } from "@/components/media-picker"
@@ -32,8 +33,7 @@ export function CreatePostForm({ initialTab }: { initialTab?: string }) {
   const [error, setError] = useState("")
   const [activeTab, setActiveTab] = useState(initialTab && TABS.includes(initialTab) ? initialTab : "image")
   const [caption, setCaption] = useState("")
-  const [code, setCode] = useState("")
-  const [language, setLanguage] = useState("javascript")
+  const [files, setFiles] = useState<DraftFile[]>(() => [newDraftFile()])
   const [imageUrl, setImageUrl] = useState("")
   const [videoUrl , setVideoUrl] = useState("")
   const { photo, select: selectPhoto, clear: clearPhoto } = usePhotoUpload("post")
@@ -114,8 +114,9 @@ export function CreatePostForm({ initialTab }: { initialTab?: string }) {
       if (bit.phase !== "ready" || !bit.uploadId) return setPublishWhenReady(true)
       return publish({ caption, videoUploadId: bit.uploadId, kind: "devbit" })
     }
-    if (!code) return setError("Code is required for code posts")
-    return publish({ caption, code, language })
+    const parsed = parseFiles(files.map(({ name, language, code }) => ({ name, language, code })))
+    if ("error" in parsed) return setError(parsed.error)
+    return publish({ caption, files: parsed.files })
   }
 
   return (
@@ -226,35 +227,7 @@ export function CreatePostForm({ initialTab }: { initialTab?: string }) {
                 </div>
               </TabsContent>
               <TabsContent value="code" className="mt-4 space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="language">Language</Label>
-                  <Select value={language} onValueChange={setLanguage}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select language" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="javascript">JavaScript</SelectItem>
-                      <SelectItem value="typescript">TypeScript</SelectItem>
-                      <SelectItem value="jsx">JSX/React</SelectItem>
-                      <SelectItem value="html">HTML</SelectItem>
-                      <SelectItem value="css">CSS</SelectItem>
-                      <SelectItem value="python">Python</SelectItem>
-                      <SelectItem value="java">Java</SelectItem>
-                      <SelectItem value="csharp">C#</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="code">Code</Label>
-                  <Textarea
-                    id="code"
-                    placeholder="Paste your code here..."
-                    className="min-h-[200px] font-mono"
-                    value={code}
-                    onChange={(e) => setCode(e.target.value)}
-                    required={activeTab === "code"}
-                  />
-                </div>
+                <CodeFilesEditor files={files} onChange={setFiles} />
               </TabsContent>
               <TabsContent value="devbit" className="mt-4 space-y-4">
                 <MediaPicker

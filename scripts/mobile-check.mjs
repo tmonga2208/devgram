@@ -653,6 +653,107 @@ async function main() {
     const flood = await runUntilStopped("endless logging", codePosts.flood)
     check("endless logging: the panel keeps at most 200 lines", flood.lines > 1 && flood.lines <= 200, `${flood.lines} lines`)
 
+    console.log("\n[writing code]")
+    const openCodeTab = async (target) => {
+      await open(target, "/create")
+      // Radix tabs switch on mouse down, as a tap starts, not on click().
+      await target.evaluate(`[...document.querySelectorAll('[role="tab"]')]
+        .find((tab) => tab.textContent.trim() === "Code")
+        ?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }))`)
+      await sleep(300)
+    }
+    const addFile = `[...document.querySelectorAll("main button")].find((b) => b.textContent.includes("Add file"))`
+    const selectTab = (name) =>
+      click(`[...document.querySelectorAll("main [data-file-tab]")].find((tab) => tab.textContent.trim() === ${JSON.stringify(name)})`)
+    const postButton = `[...document.querySelectorAll("main button")].find((b) => b.textContent.trim() === "Post")`
+    await openCodeTab(page)
+    const box = await page.evaluate(`(() => {
+      const area = document.querySelector("main textarea#code")
+      return area && {
+        autocorrect: area.getAttribute("autocorrect"),
+        autocapitalize: area.getAttribute("autocapitalize"),
+        spellcheck: area.getAttribute("spellcheck"),
+      }
+    })()`)
+    check("create, code: phones get the plain code box", Boolean(box), "no code box")
+    check(
+      "create, code: the box leaves autocorrect, capitals and spelling alone",
+      box?.autocorrect === "off" && box?.autocapitalize === "off" && box?.spellcheck === "false",
+      JSON.stringify(box),
+    )
+    await page.type("main textarea#code", "const greeting = 'hi'")
+    check(
+      "create, code: a highlighted preview follows what you type",
+      await page.waitFor(
+        `(() => { const preview = document.querySelector("main [data-code-preview]"); return Boolean(preview?.textContent.includes("const greeting = 'hi'") && preview.querySelector(".token.keyword")) })()`,
+        { timeout: 5000 },
+      ),
+    )
+    const addHeight = await page.evaluate(buttonHeight("Add file"))
+    check(`create, code: Add file is at least ${TAP_TARGET}px tall`, addHeight >= TAP_TARGET, `height ${addHeight}px`)
+    await page.evaluate(click(addFile))
+    await page.type("main input#file-name", "index.html")
+    check(
+      "create, code: naming a file index.html picks HTML",
+      await page.waitFor(`document.querySelector("main #file-language")?.textContent.includes("HTML")`, { timeout: 5000 }),
+    )
+    await page.type("main textarea#code", "<h1>Hi</h1>")
+    const draftTabs = await page.evaluate(
+      `[...document.querySelectorAll("main [data-file-tab]")].map((tab) => ({ name: tab.textContent.trim(), height: tab.getBoundingClientRect().height }))`,
+    )
+    check("create, code: a tab per file", draftTabs.map((tab) => tab.name).join(" ") === "Untitled index.html", JSON.stringify(draftTabs))
+    check(
+      `create, code: file tabs are at least ${TAP_TARGET}px tall`,
+      draftTabs.length === 2 && draftTabs.every((tab) => tab.height >= TAP_TARGET),
+      JSON.stringify(draftTabs),
+    )
+    await tabRowChecks(page, "create, code", 2)
+
+    const codeCaption = `two files ${run}`
+    await page.type("#caption", codeCaption)
+    await page.evaluate(click(postButton))
+    check("create, code: posting asks for a name on every file", await page.waitFor(`document.querySelector("main").textContent.includes("Give each file a name")`, { timeout: 5000 }))
+    await page.evaluate(selectTab("Untitled"))
+    await page.type("main input#file-name", "index.html")
+    await page.evaluate(click(postButton))
+    check(
+      "create, code: and refuses two files with one name",
+      await page.waitFor(`document.querySelector("main").textContent.includes("Two files can't have the same name")`, { timeout: 5000 }),
+    )
+    await page.evaluate(`(() => { const input = document.querySelector("main input#file-name"); input.focus(); input.select() })()`)
+    await page.cdp("Input.insertText", { text: "app.js" })
+    // A third file, removed again while it is the open one.
+    await page.evaluate(click(addFile))
+    await page.type("main input#file-name", "extra.css")
+    await page.type("main textarea#code", "p { margin: 0 }")
+    await page.evaluate(click(`[...document.querySelectorAll("main button")].find((b) => b.textContent.includes("Remove extra.css"))`))
+    const afterRemove = await page.evaluate(`({
+      tabs: [...document.querySelectorAll("main [data-file-tab]")].map((tab) => tab.textContent.trim()).join(" "),
+      code: document.querySelector("main textarea#code").value,
+    })`)
+    check(
+      "create, code: removing the open file keeps the others as they were",
+      afterRemove.tabs === "app.js index.html" && afterRemove.code === "<h1>Hi</h1>",
+      JSON.stringify(afterRemove),
+    )
+    await page.evaluate(selectTab("app.js"))
+    check("create, code: each file keeps its own code", (await page.evaluate(`document.querySelector("main textarea#code").value`)) === "const greeting = 'hi'")
+    await page.evaluate(click(postButton))
+    const codePosted = await page.waitFor(`location.pathname === "/"`, { timeout: 15000 })
+    await sleep(800)
+    const postedCode = await page.evaluate(`(() => {
+      const card = [...document.querySelectorAll("main [data-post]")].find((el) => el.textContent.includes(${JSON.stringify(codeCaption)}))
+      return card && {
+        tabs: [...card.querySelectorAll("[data-file-tab]")].map((tab) => tab.textContent.trim()).join(" "),
+        code: card.querySelector("pre").textContent,
+      }
+    })()`)
+    check(
+      "create, code: the post appears in the feed with both files",
+      codePosted && postedCode?.tabs === "app.js index.html" && postedCode.code === "const greeting = 'hi'",
+      JSON.stringify(postedCode),
+    )
+
     console.log("\n[messages]")
     await open(page, "/direct")
     await shellChecks(page, "conversation list", { back: true, tabs, fill: true })
