@@ -3,10 +3,12 @@
 import { useLayoutEffect, useRef, useState } from "react"
 import type { CodeFile } from "@/lib/code-files"
 import {
+  FLOODED,
   RUN_SECONDS,
   STOPPED,
   appendLines,
   buildRunDocument,
+  messageBudget,
   readRunMessage,
   runKind,
   type RunLevel,
@@ -51,13 +53,24 @@ export function CodeRun({ files, onFinish }: CodeRunProps) {
   // before the browser goes back to loading the frame.
   useLayoutEffect(() => {
     let done = false
+    let flooded = false
+    const allow = messageBudget()
     const end = () => {
       done = true
       setEnded(true)
       finish.current()
     }
     const onMessage = (event: MessageEvent) => {
-      if (!frame.current || event.source !== frame.current.contentWindow) return
+      if (flooded || !frame.current || event.source !== frame.current.contentWindow) return
+      // Counted before the message is read: code that posts messages itself,
+      // thousands a second, is stopped instead of being read.
+      if (!allow(performance.now())) {
+        flooded = true
+        setFrameLive(false)
+        setLines((current) => appendLines(current, [{ level: "error", text: FLOODED }]))
+        if (!done) end()
+        return
+      }
       const message = readRunMessage(event.data)
       if (!message) return
       if ("lines" in message) setLines((current) => appendLines(current, message.lines))

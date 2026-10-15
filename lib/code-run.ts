@@ -11,6 +11,27 @@ export const MAX_LINE_CHARS = 1000
 
 export const STOPPED = "Stopped after 5 seconds"
 export const CANT_RUN = "This browser can't run JavaScript here"
+export const FLOODED = "Stopped — too much output at once"
+
+// A run frame may send this many messages a second. The bridge sends about
+// ten; code that calls postMessage itself in a loop sends thousands, and
+// reading each one would freeze the page.
+export const MAX_MESSAGES_PER_SECOND = 30
+
+// Counts a run frame's messages: false once more than `limit` have come
+// within a second.
+export function messageBudget(limit = MAX_MESSAGES_PER_SECOND): (now: number) => boolean {
+  let windowStart = -Infinity
+  let count = 0
+  return (now) => {
+    if (now - windowStart >= 1000) {
+      windowStart = now
+      count = 0
+    }
+    count += 1
+    return count <= limit
+  }
+}
 
 export type RunKind = "page" | "script"
 export type RunLevel = "log" | "info" | "warn" | "error"

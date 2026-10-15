@@ -133,6 +133,20 @@ async function seed() {
     ]),
     loop: await codePost("endless loop", [{ name: "loop.js", language: "javascript", code: "let i = 0\nwhile (true) { i++ }" }]),
     flood: await codePost("endless logging", [{ name: "flood.js", language: "javascript", code: "let i = 0\nwhile (true) console.log(i++)" }]),
+    // Code that calls postMessage itself, as fast as it can, with messages
+    // shaped like real output so each one would reach the panel.
+    workerFlood: await codePost("worker flood", [
+      { name: "post.js", language: "javascript", code: 'const lines = [{ level: "log", text: "x" }]\nwhile (true) postMessage({ devgramRun: "lines", lines })' },
+    ]),
+    // A page has no time limit. (A page stuck in while (true) never gets its
+    // messages sent at all; this one sends them in bursts.)
+    pageFlood: await codePost("page flood", [
+      {
+        name: "index.html",
+        language: "html",
+        code: '<script>const lines = [{ level: "log", text: "x" }]\nconst burst = () => { for (let i = 0; i < 2000; i++) parent.postMessage({ devgramRun: "lines", lines }, "*"); setTimeout(burst) }\nburst()</script>',
+      },
+    ]),
   }
 
   // Mux videos for the playback checks: a video post, and three DevBits.
@@ -620,7 +634,7 @@ async function main() {
     check("script post: a run that finished isn't reported as stopped", !(await page.evaluate(`${output}.includes("Stopped after 5 seconds")`)))
 
     // While code runs, the page's own timers have to keep firing on time.
-    const runUntilStopped = async (label, id) => {
+    const runUntilStopped = async (label, id, { message = "Stopped after 5 seconds", after = 4.5 } = {}) => {
       await open(page, `/p/${id}`)
       await page.evaluate(`(() => {
         window.__lateBy = 0
@@ -633,7 +647,7 @@ async function main() {
       })()`)
       const started = Date.now()
       await page.evaluate(click(runButton))
-      const stopped = await page.waitFor(`${output}.includes("Stopped after 5 seconds")`, { timeout: 10000 })
+      const stopped = await page.waitFor(`${output}.includes(${JSON.stringify(message)})`, { timeout: 15000 })
       const seconds = (Date.now() - started) / 1000
       const state = await page.evaluate(`(() => {
         clearInterval(window.__ticker)
@@ -644,7 +658,7 @@ async function main() {
           button: ${runButton}.textContent.trim(),
         }
       })()`)
-      check(`${label}: stopped after 5 seconds`, stopped && seconds >= 4.5, `${seconds.toFixed(1)}s ${JSON.stringify(state)}`)
+      check(`${label}: ${message.toLowerCase()}`, stopped && seconds >= after, `${seconds.toFixed(1)}s ${JSON.stringify(state)}`)
       check(`${label}: the page kept responding`, state.lateBy < 500, `timers ran up to ${state.lateBy}ms late`)
       check(`${label}: its frame is gone and Run is back`, !state.frame && state.button === "Run", JSON.stringify(state))
       return state
@@ -652,6 +666,11 @@ async function main() {
     await runUntilStopped("endless loop", codePosts.loop)
     const flood = await runUntilStopped("endless logging", codePosts.flood)
     check("endless logging: the panel keeps at most 200 lines", flood.lines > 1 && flood.lines <= 200, `${flood.lines} lines`)
+    // Code that calls postMessage itself skips the output batching; reading
+    // thousands of messages a second would freeze the page, so it's cut off.
+    const tooMuch = { message: "Stopped — too much output at once", after: 0 }
+    await runUntilStopped("a worker posting messages in a loop", codePosts.workerFlood, tooMuch)
+    await runUntilStopped("a page posting messages in a loop", codePosts.pageFlood, tooMuch)
 
     console.log("\n[writing code]")
     const openCodeTab = async (target) => {
@@ -1350,6 +1369,64 @@ async function main() {
       ),
     )
     await blocked.close()
+
+    // Code written in the plain box while the window was narrow is still
+    // there when Monaco comes back.
+    await openCodeTab(page)
+    await page.waitFor(`Boolean(document.querySelector("main .monaco-editor .view-lines"))`, { timeout: 30000 })
+    await typeInMonaco("let a = 1")
+    await page.evaluate(click(addFile))
+    await page.waitFor(`${monacoText} === ""`, { timeout: 5000 })
+    await page.type("main input#file-name", "b.js")
+    await typeInMonaco("let b = 2")
+    await page.setViewport({ width: 700, height: 800, mobile: false })
+    check(
+      "desktop, create: a window narrower than 768px gets the plain box",
+      await page.waitFor(`Boolean(document.querySelector("main textarea#code"))`, { timeout: 5000 }),
+    )
+    await page.evaluate(selectTab("Untitled"))
+    await page.type("main textarea#code", " // edited")
+    await page.setViewport(DESKTOP)
+    check(
+      "desktop, create: widening it again keeps what was written in the plain box",
+      await page.waitFor(`${monacoText} === "let a = 1 // edited"`, { timeout: 15000 }),
+      String(await page.evaluate(monacoText)),
+    )
+    await page.evaluate(selectTab("b.js"))
+    check("desktop, create: and every other file's code", await page.waitFor(`${monacoText} === "let b = 2"`, { timeout: 5000 }))
+
+    // TypeScript with JSX gets no false errors; a real mistake still shows.
+    await page.evaluate(click(addFile))
+    await page.waitFor(`${monacoText} === ""`, { timeout: 5000 })
+    await page.type("main input#file-name", "App.tsx")
+    const setMonaco = (text) => `window.monaco.editor.getEditors()[0].setValue(${JSON.stringify(text)})`
+    const monacoErrors = `(() => {
+      const model = window.monaco.editor.getEditors()[0]?.getModel()
+      if (!model) return -1
+      return window.monaco.editor.getModelMarkers({ resource: model.uri }).filter((marker) => marker.severity === window.monaco.MarkerSeverity.Error).length
+    })()`
+    await page.evaluate(setMonaco("const broken = ("))
+    check("desktop, create: Monaco marks a real mistake", await page.waitFor(`${monacoErrors} > 0`, { timeout: 20000 }))
+    await page.evaluate(setMonaco('import React from "react"\nexport const App = () => <div className="a">hi</div>\n'))
+    check(
+      "desktop, create: and nothing in valid TSX",
+      await page.waitFor(`${monacoErrors} === 0`, { timeout: 20000 }),
+      `${await page.evaluate(monacoErrors)} errors`,
+    )
+
+    // If the editor's own code can't load (after a deploy, say), the plain box takes over.
+    const noChunk = await browser.newPage(DESKTOP)
+    await noChunk.cdp("Network.enable")
+    await noChunk.cdp("Network.setBlockedURLs", { urls: ["*monaco-input*"] })
+    await openCodeTab(noChunk)
+    check(
+      "desktop, create: when the editor's code can't load, the plain box says so",
+      await noChunk.waitFor(
+        `(document.querySelector("main")?.textContent ?? "").includes("The full editor couldn't load — you can still write here.") && Boolean(document.querySelector("main textarea#code"))`,
+        { timeout: 15000 },
+      ),
+    )
+    await noChunk.close()
   } catch (error) {
     failures++
     console.log(`  FAIL the check stopped early -- ${error.message}`)

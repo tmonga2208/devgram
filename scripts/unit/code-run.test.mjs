@@ -8,6 +8,7 @@ import {
   WORKER_SOURCE,
   appendLines,
   buildRunDocument,
+  messageBudget,
   readRunMessage,
   runKind,
 } from "../../lib/code-run.ts"
@@ -199,6 +200,20 @@ test("reads only well-formed messages from a run frame, and cuts what it keeps",
   const many = readRunMessage({ devgramRun: "lines", lines: Array.from({ length: 500 }, (_, i) => ({ level: "log", text: String(i) })) })
   assert.equal(many.lines.length, 200)
   assert.equal(many.lines[0].text, "300")
+})
+
+test("a run frame may send 30 messages in a second; more is a flood", () => {
+  const allow = messageBudget()
+  for (let i = 0; i < 30; i++) assert.equal(allow(i), true, `message ${i + 1}`)
+  assert.equal(allow(30), false)
+  assert.equal(allow(999), false)
+})
+
+test("the bridge's own pace never counts as a flood", () => {
+  const allow = messageBudget()
+  // A batch of lines every 100 ms for a minute, then "done".
+  for (let at = 0; at <= 60000; at += 100) assert.equal(allow(at), true, `at ${at} ms`)
+  assert.equal(allow(60001), true)
 })
 
 test("the panel keeps the newest 200 lines", () => {

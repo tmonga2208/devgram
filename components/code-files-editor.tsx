@@ -1,7 +1,7 @@
 "use client"
 
 import dynamic from "next/dynamic"
-import { useCallback, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { Plus, Trash2 } from "lucide-react"
 import { useMediaQuery } from "@/hooks/use-media-query"
 import { Button } from "@/components/ui/button"
@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { HighlightedCode } from "@/components/highlighted-code"
+import type { MonacoInputProps } from "@/components/monaco-input"
 import { LANGUAGES, MAX_FILES, MAX_FILE_NAME, guessLanguage, languageLabel, type CodeFile } from "@/lib/code-files"
 import { cn } from "@/lib/utils"
 
@@ -34,8 +35,18 @@ const editorLoading = (
 )
 
 // Monaco's code, and Monaco itself from jsDelivr, load only when a computer
-// opens the Code tab.
-const MonacoInput = dynamic(() => import("@/components/monaco-input"), { ssr: false, loading: () => editorLoading })
+// opens the Code tab. If that code can't load (a deploy replaced it, say), the
+// plain box takes over instead of the page breaking.
+const MonacoInput = dynamic<MonacoInputProps>(
+  () =>
+    import("@/components/monaco-input").catch(() => ({
+      default: function MonacoMissing({ onFail }: MonacoInputProps) {
+        useEffect(() => onFail(), [onFail])
+        return null
+      },
+    })),
+  { ssr: false, loading: () => editorLoading },
+)
 
 // The plain code box: what phones get. Nothing in it second-guesses what
 // you type, and a highlighted copy of the code shows under it.
