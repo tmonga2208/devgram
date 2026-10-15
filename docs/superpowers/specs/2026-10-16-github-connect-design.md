@@ -141,7 +141,7 @@ All need you signed in, with the Bearer token like the rest of the API:
 - **`GET /api/github/repos`:** your public repositories that you own (not ones you only contribute to), most recently pushed first, up to 100, each with its name, description, language and default branch. "Connect GitHub first" when not connected.
 - **`GET /api/github/resolve?url=`:** a pasted link, or a repository chosen from the list, becomes: the owner and repository as GitHub spells them, the full commit, the path, whether it's a repository, folder or file, and any marked lines. A repository link uses its default branch. For `tree/` and `blob/` links, the branch is found by trying the shortest possible branch name first (`feature`, then `feature/login`, …), at most 5 tries; a full commit is used as it is.
 - **`GET /api/github/tree?owner&repo&commit`:** every folder and file at that commit, in one GitHub call (`git/trees/<commit>?recursive=1`), leaving out submodules and symlinks. When GitHub says the list is truncated, or it has more than 10,000 entries: "This repository is too big to browse here — paste a link to the file instead".
-- **`GET /api/github/file?owner&repo&commit&path`:** the file's text, its suggested name and language, and its line count, after two checks: at most 100,000 characters (a file whose size already rules that out isn't downloaded) and text (valid UTF-8 with no null characters).
+- **`GET /api/github/file?owner&repo&commit&path`:** the file's text, its suggested name and language, and its line count, after two checks: at most 100,000 characters (a file whose size already rules that out isn't decoded) and text (valid UTF-8 with no null characters).
 
 ### Posting
 
