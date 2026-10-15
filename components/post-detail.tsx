@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation"
 import { Heart, MessageCircle, Bookmark, Code } from "lucide-react"
 import { Comments } from "@/components/comments"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { CodeBlock } from "@/components/code-block"
+import { CodeView } from "@/components/code-view"
 import { VideoPlayer } from "./video-player"
 import { MuxVideo } from "@/components/mux-video"
 import { muxThumbnailUrl } from "@/lib/media-urls"
@@ -100,8 +100,7 @@ export function PostDetail({ id }: PostDetailProps) {
   const isLiked = !!user && (post.likedBy || []).includes(user.username)
   const isSaved = !!user && (post.savedBy || []).includes(user.username)
   const comments = post.comments || []
-  // A code post's first file (posts from before files keep their code on the post).
-  const [firstFile] = postFiles(post)
+  const files = postFiles(post)
 
   const requireUser = () => {
     if (user) return true
@@ -139,7 +138,7 @@ export function PostDetail({ id }: PostDetailProps) {
           {post.muxVideo && (
             <MuxVideo playbackId={post.muxVideo.playbackId} aspectRatio={post.muxVideo.aspectRatio} title={post.caption} />
           )}
-          {firstFile && <CodeBlock code={firstFile.code} language={firstFile.language} />}
+          {files.length > 0 && <CodeView files={files} />}
 
           <div className="p-4 space-y-4">
             <div className="flex items-center justify-between">

@@ -4,7 +4,7 @@ import { useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Heart, MessageCircle, Bookmark, MoreHorizontal, Code, Image as ImageIcon } from "lucide-react"
+import { Heart, MessageCircle, Bookmark, MoreHorizontal, Image as ImageIcon } from "lucide-react"
 import { formatDistanceToNow } from "date-fns"
 import { usePosts } from "@/contexts/posts-context"
 import { useAuth } from "@/contexts/auth-context"
@@ -13,7 +13,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Separator } from "@/components/ui/separator"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
-import { CodeBlock } from "@/components/code-block"
+import { CodeView } from "@/components/code-view"
 import { VideoPlayer } from "@/components/video-player"
 import { MuxVideo } from "@/components/mux-video"
 import type { PostType } from "@/lib/types"
@@ -39,8 +39,7 @@ export function Post({ post }: PostProps) {
   const isLiked = !!user && (post.likedBy || []).includes(user.username)
   const isSaved = !!user && (post.savedBy || []).includes(user.username)
   const comments = post.comments || []
-  // A code post's first file (posts from before files keep their code on the post).
-  const [firstFile] = postFiles(post)
+  const files = postFiles(post)
 
   // Signed-out visitors are sent to log in instead of getting a failed request.
   const requireUser = () => {
@@ -91,7 +90,7 @@ export function Post({ post }: PostProps) {
   }
 
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-lg shadow-md overflow-hidden">
+    <div data-post={post._id} className="bg-white dark:bg-gray-900 rounded-lg shadow-md overflow-hidden">
       {/* Post Header */}
       <div className="p-4 flex items-center justify-between">
         <Link href={`/profile/${post.author.username}`} className="flex min-w-0 items-center">
@@ -132,16 +131,8 @@ export function Post({ post }: PostProps) {
           <MuxVideo playbackId={post.muxVideo.playbackId} aspectRatio={post.muxVideo.aspectRatio} title={post.caption} />
         ) : post.video ? (
           <VideoPlayer url={post.video} />
-        ) : firstFile ? (
-          <div className="bg-gray-100 dark:bg-gray-800 p-4 overflow-x-auto">
-            <div className="flex items-center mb-2">
-              <Code className="h-4 w-4 mr-2" />
-              <span className="text-sm text-gray-500 dark:text-gray-400">
-                {firstFile.language}
-              </span>
-            </div>
-            <CodeBlock code={firstFile.code} language={firstFile.language} />
-          </div>
+        ) : files.length > 0 ? (
+          <CodeView files={files} fold />
         ) : (
           <div className="h-64 bg-gray-200 dark:bg-gray-800 flex items-center justify-center">
             <ImageIcon className="h-12 w-12 text-gray-400" />

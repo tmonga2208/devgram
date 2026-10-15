@@ -8,7 +8,7 @@ import { mkdir, readFile } from "node:fs/promises"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { launchBrowser } from "./lib/browser.mjs"
-import { assertSameDatabase, removeTestUsers } from "./lib/test-users.mjs"
+import { assertSameDatabase, insertLegacyCodePost, removeTestUsers } from "./lib/test-users.mjs"
 
 const BASE = process.env.SMOKE_BASE_URL || "http://localhost:3000"
 const SHOTS = process.env.MOBILE_SHOTS
@@ -28,6 +28,17 @@ const run = Math.random().toString(36).slice(2, 8)
 // both have to wrap or be trimmed instead of widening the page.
 const names = { a: `mobile_${run}_a_with_long_name`, b: `mobile_${run}_b_with_long_name` }
 const LONG_LINK = `https://example.com/${"longpath".repeat(15)}${run}`
+// Three files that make a page: the script reports the heading's colour,
+// which only the CSS file sets, then calls a function that doesn't exist.
+const PAGE_FILES = [
+  { name: "index.html", language: "html", code: '<!doctype html>\n<h1 id="title">Hello</h1>' },
+  { name: "style.css", language: "css", code: "#title { color: rgb(255, 0, 0); }" },
+  {
+    name: "app.js",
+    language: "javascript",
+    code: 'console.log("title colour", getComputedStyle(document.getElementById("title")).color)\nnope()',
+  },
+]
 let checks = 0
 let failures = 0
 
@@ -106,6 +117,17 @@ async function seed() {
   }
   await api("POST", "/api/messages", a.token, { receiver: names.b, content: "better than before" })
 
+  // Code posts: three files that make a page, 30 lines to fold, and one
+  // stored the way code posts were before they had files.
+  const codePost = async (caption, files) => (await api("POST", "/api/posts", a.token, { caption: `${caption} ${run}`, files }))._id
+  const codePosts = {
+    page: await codePost("three files", PAGE_FILES),
+    thirty: await codePost("thirty lines", [
+      { name: "", language: "python", code: Array.from({ length: 30 }, (_, i) => `print(${i + 1})`).join("\n") },
+    ]),
+    legacy: await insertLegacyCodePost(names.a, { caption: `old code post ${run}`, code: "print('stored the old way')", language: "python" }),
+  }
+
   // Mux videos for the playback checks: a video post, and three DevBits.
   let videoPostId = null
   let devbits = null
@@ -119,7 +141,7 @@ async function seed() {
     videoPostId = video
     devbits = { one, two, three }
   }
-  return { a, b, postId: code._id, videoPostId, devbits }
+  return { a, b, postId: code._id, videoPostId, devbits, codePosts }
 }
 
 // Everything below this point runs inside the page.
@@ -390,7 +412,7 @@ async function main() {
 
   let browser = null
   try {
-    const { a, b, postId, videoPostId, devbits } = await seed()
+    const { a, b, postId, videoPostId, devbits, codePosts } = await seed()
     const tabs = `Home=/ Explore=/explore Create=/create DevBits=/devbits Profile=/profile/${names.a}`
     browser = await launchBrowser()
     const page = await browser.newPage(PHONE)
@@ -480,6 +502,66 @@ async function main() {
     await fresh.evaluate(click(`document.querySelector('header button[aria-label="Back"]')`))
     check("back arrow goes home when there is no previous page", await fresh.waitFor(`location.pathname === "/"`, { timeout: 5000 }))
     await fresh.close()
+
+    console.log("\n[code posts]")
+    await open(page, `/p/${codePosts.page}`)
+    await shellChecks(page, "three-file post", { back: true, tabs })
+    await tabRowChecks(page, "three-file post", 3)
+    const fileTabs = await page.evaluate(
+      `[...document.querySelectorAll("main [data-code-view] [data-file-tab]")].map((tab) => ({ name: tab.textContent.trim(), height: tab.getBoundingClientRect().height }))`,
+    )
+    check("three-file post: a tab per file, in order", fileTabs.map((tab) => tab.name).join(" ") === "index.html style.css app.js", JSON.stringify(fileTabs))
+    check(
+      `three-file post: file tabs are at least ${TAP_TARGET}px tall`,
+      fileTabs.length === 3 && fileTabs.every((tab) => tab.height >= TAP_TARGET),
+      JSON.stringify(fileTabs),
+    )
+    const numbered = await page.evaluate(`document.querySelector("main [data-code-view] [data-line-numbers]")?.children.length ?? 0`)
+    check("three-file post: the open file has a number on each line", numbered === 2, `${numbered} line numbers`)
+    const copyHeight = await page.evaluate(`document.querySelector("main [data-code-view] [data-copy]")?.getBoundingClientRect().height ?? 0`)
+    check(`three-file post: Copy is at least ${TAP_TARGET}px tall`, copyHeight >= TAP_TARGET, `height ${copyHeight}px`)
+
+    // Copy goes through the clipboard; these stand-ins record what it gets, or refuse.
+    const clipboard = (body) => `void Object.defineProperty(navigator.clipboard, "writeText", { configurable: true, value: ${body} })`
+    const copyButton = `document.querySelector("main [data-code-view] [data-copy]")`
+    await page.evaluate(clipboard(`async (text) => { window.__copied = text }`))
+    await page.evaluate(click(copyButton))
+    check("three-file post: Copy copies the open file", await page.waitFor(`window.__copied === ${JSON.stringify(PAGE_FILES[0].code)}`, { timeout: 5000 }))
+    check("three-file post: then says Copied ✓", await page.waitFor(`${copyButton}.textContent.includes("Copied ✓")`, { timeout: 5000 }))
+    await page.evaluate(click(`[...document.querySelectorAll("main [data-code-view] [data-file-tab]")].find((tab) => tab.textContent.trim() === "style.css")`))
+    await page.evaluate(click(copyButton))
+    check("three-file post: Copy follows the open tab", await page.waitFor(`window.__copied === ${JSON.stringify(PAGE_FILES[1].code)}`, { timeout: 5000 }))
+    await page.evaluate(clipboard(`async () => { throw new Error("denied") }`))
+    await page.evaluate(click(copyButton))
+    check(
+      "three-file post: a refused copy says what to do instead",
+      await page.waitFor(`document.body.textContent.includes("Couldn't copy — select the code instead")`, { timeout: 5000 }),
+    )
+
+    await open(page, "/")
+    const card = (id) => `document.querySelector('main [data-post="${id}"]')`
+    const shownLines = `(${card(codePosts.thirty)}?.querySelector("[data-line-numbers]")?.children.length ?? 0)`
+    const folded = await page.evaluate(shownLines)
+    check("feed: a 30-line file shows its first 20 lines", folded === 20, `${folded} lines`)
+    const showAll = await page.evaluate(`${card(codePosts.thirty)}?.querySelector("[data-show-all]")?.getBoundingClientRect().height ?? 0`)
+    check(`feed: Show all is at least ${TAP_TARGET}px tall`, showAll >= TAP_TARGET, `height ${showAll}px`)
+    await page.evaluate(click(`${card(codePosts.thirty)}?.querySelector("[data-show-all]")`))
+    check("feed: Show all shows all 30", await page.waitFor(`${shownLines} === 30`, { timeout: 5000 }))
+    const legacy = await page.evaluate(`(() => {
+      const card = ${card(codePosts.legacy)}
+      const view = card?.querySelector("[data-code-view]")
+      if (!view) return null
+      return {
+        header: view.firstElementChild.textContent.trim(),
+        code: view.querySelector("pre").textContent,
+        labels: card.textContent.split("Python").length - 1,
+      }
+    })()`)
+    check(
+      "feed: a code post stored the old way shows its code under one Python label",
+      legacy?.code === "print('stored the old way')" && legacy.header.startsWith("Python") && legacy.labels === 1,
+      JSON.stringify(legacy),
+    )
 
     console.log("\n[messages]")
     await open(page, "/direct")
@@ -942,6 +1024,13 @@ async function main() {
     await open(page, "/devbits")
     const smallDevbits = await page.evaluate(SHELL)
     check("small phone, devbits: fits the width of the screen", fitsScreen(smallDevbits, SMALL_PHONE), widthDetail(smallDevbits, SMALL_PHONE))
+    await open(page, `/p/${codePosts.page}`)
+    const smallCode = await page.evaluate(SHELL)
+    check("small phone, three-file post: fits the width of the screen", fitsScreen(smallCode, SMALL_PHONE), widthDetail(smallCode, SMALL_PHONE))
+    await tabRowChecks(page, "small phone, three-file post", 3)
+    await open(page, `/p/${postId}`)
+    const smallWide = await page.evaluate(SHELL)
+    check("small phone, a 300-character line: fits the width of the screen", fitsScreen(smallWide, SMALL_PHONE), widthDetail(smallWide, SMALL_PHONE))
     await open(page, "/notifications")
     await shot(page, "small-notifications")
     await tabRowChecks(page, "small phone, notifications", 5)
@@ -994,22 +1083,27 @@ async function main() {
       "desktop: the sidebar links to DevBits",
       await page.evaluate(`[...document.querySelectorAll('a[href="/devbits"]')].some((link) => link.getBoundingClientRect().width > 0 && !link.closest("main"))`),
     )
-    await open(page, "/devbits")
-    const desktopDevbits = await page.evaluate(`(() => {
-      const list = document.querySelector("[data-devbits-list]")
-      return {
-        pageHeight: document.documentElement.scrollHeight,
-        height: innerHeight,
-        listBottom: list ? list.getBoundingClientRect().bottom : null,
-      }
-    })()`)
-    check(
-      "desktop, devbits: the DevBits column fits the window",
-      desktopDevbits.listBottom !== null &&
-        desktopDevbits.listBottom <= desktopDevbits.height + 1 &&
-        desktopDevbits.pageHeight <= desktopDevbits.height + 1,
-      JSON.stringify(desktopDevbits),
-    )
+    // Without the test DevBits the screen shows its empty state, not the column.
+    if (!devbits) {
+      console.log("  skip desktop devbits column (MUX_TOKEN_ID is not set)")
+    } else {
+      await open(page, "/devbits")
+      const desktopDevbits = await page.evaluate(`(() => {
+        const list = document.querySelector("[data-devbits-list]")
+        return {
+          pageHeight: document.documentElement.scrollHeight,
+          height: innerHeight,
+          listBottom: list ? list.getBoundingClientRect().bottom : null,
+        }
+      })()`)
+      check(
+        "desktop, devbits: the DevBits column fits the window",
+        desktopDevbits.listBottom !== null &&
+          desktopDevbits.listBottom <= desktopDevbits.height + 1 &&
+          desktopDevbits.pageHeight <= desktopDevbits.height + 1,
+        JSON.stringify(desktopDevbits),
+      )
+    }
   } catch (error) {
     failures++
     console.log(`  FAIL the check stopped early -- ${error.message}`)
