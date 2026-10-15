@@ -1,7 +1,9 @@
 "use client"
 
-import { useState } from "react"
+import dynamic from "next/dynamic"
+import { useCallback, useState } from "react"
 import { Plus, Trash2 } from "lucide-react"
+import { useMediaQuery } from "@/hooks/use-media-query"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -21,6 +23,19 @@ export function newDraftFile(language = "javascript"): DraftFile {
   lastKey += 1
   return { key: lastKey, name: "", language, code: "" }
 }
+
+export const EDITOR_FAILED = "The full editor couldn't load — you can still write here."
+// A mouse or trackpad, and a screen at least 768px wide: Monaco doesn't work
+// in phone browsers.
+const COMPUTER = "(pointer: fine) and (min-width: 768px)"
+
+const editorLoading = (
+  <div className="flex h-80 items-center justify-center rounded-md border bg-zinc-950 text-sm text-zinc-400">Loading editor…</div>
+)
+
+// Monaco's code, and Monaco itself from jsDelivr, load only when a computer
+// opens the Code tab.
+const MonacoInput = dynamic(() => import("@/components/monaco-input"), { ssr: false, loading: () => editorLoading })
 
 // The plain code box: what phones get. Nothing in it second-guesses what
 // you type, and a highlighted copy of the code shows under it.
@@ -60,6 +75,9 @@ export function CodeFilesEditor({ files, onChange }: CodeFilesEditorProps) {
   const [active, setActive] = useState(0)
   const current = Math.min(active, files.length - 1)
   const file = files[current]
+  const computer = useMediaQuery(COMPUTER)
+  const [monacoFailed, setMonacoFailed] = useState(false)
+  const onMonacoFail = useCallback(() => setMonacoFailed(true), [])
 
   const update = (changes: Partial<CodeFile>) =>
     onChange(files.map((item, index) => (index === current ? { ...item, ...changes } : item)))
@@ -138,7 +156,21 @@ export function CodeFilesEditor({ files, onChange }: CodeFilesEditorProps) {
           </Select>
         </div>
       </div>
-      <PlainCodeBox file={file} onCode={(code) => update({ code })} />
+      {computer && !monacoFailed ? (
+        <div className="space-y-2">
+          <p className="text-sm font-medium">Code</p>
+          <MonacoInput
+            path={`file-${file.key}`}
+            language={file.language}
+            value={file.code}
+            onChange={(code) => update({ code })}
+            onFail={onMonacoFail}
+            loading={editorLoading}
+          />
+        </div>
+      ) : (
+        <PlainCodeBox file={file} onCode={(code) => update({ code })} note={monacoFailed ? EDITOR_FAILED : undefined} />
+      )}
       {files.length > 1 && (
         <Button type="button" variant="ghost" onClick={remove} className="min-h-11 text-destructive md:min-h-9">
           <Trash2 className="h-4 w-4" />

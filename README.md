@@ -6,7 +6,8 @@ Live at **https://devgram-nine.vercel.app**.
 
 ## Features
 
-- Feed of photo, video and syntax-highlighted code posts; photos and videos upload from your device (or paste a link)
+- Feed of photo, video and code posts; photos and videos upload from your device (or paste a link)
+- Code posts with up to 5 files in 26 languages: line numbers, Copy, and Run for HTML and JavaScript in a locked-down sandbox; written in Monaco (VS Code's editor) on computers
 - DevBits: short vertical videos (up to 90 seconds) in a full-screen swipe feed, on their own tab and on profiles
 - Like, comment and save posts; saves are private to each user
 - User profiles with avatar, bio and website
@@ -27,6 +28,7 @@ Live at **https://devgram-nine.vercel.app**.
 - MongoDB with Mongoose
 - JWT authentication with `jose`; passwords hashed with `bcryptjs`
 - Vercel Blob for photos, Mux for videos
+- Prism for code highlighting; Monaco (`@monaco-editor/react`) for writing code on computers
 
 ## Getting started
 
@@ -67,11 +69,11 @@ Open http://localhost:3000 and register an account.
 | `npm run build` | production build |
 | `npm run lint` | ESLint |
 | `npm run typecheck` | TypeScript, no emit |
-| `npm run test:unit` | unit tests for the upload rules and for photo and video deletes |
+| `npm run test:unit` | unit tests for the upload rules, code posts (file rules, highlighting, Run) and photo and video deletes |
 | `npm run smoke` | end-to-end API test against the running dev server |
 | `npm run mobile-check` | layout check of every page at phone width, in headless Chrome |
 
-`npm run smoke` registers two `smoke_...` users through the API, exercises every endpoint, and then deletes everything those users created, straight from the database in `.env.local`. `npm run mobile-check` does the same with two `mobile_...` users and measures each page at 390px and 320px wide: no sideways scrolling, page margins, the tab bar, the back arrow, the messages screens, tab rows, long names and links, and safe areas. It needs Chrome or Chromium installed (`CHROME_PATH` points at another binary), and `MOBILE_SHOTS=some/dir` saves a screenshot of each page.
+`npm run smoke` registers two `smoke_...` users through the API, exercises every endpoint, and then deletes everything those users created, straight from the database in `.env.local`. `npm run mobile-check` does the same with two `mobile_...` users and measures each page at 390px and 320px wide: no sideways scrolling, page margins, the tab bar, the back arrow, the messages screens, tab rows, long names and links, code posts (tabs, Copy, Run and its 5-second stop, writing them on a phone), and safe areas; at desktop size it checks that Monaco loads and that the plain box takes over when it can't. It needs Chrome or Chromium installed (`CHROME_PATH` points at another binary), and `MOBILE_SHOTS=some/dir` saves a screenshot of each page.
 
 Both target `http://localhost:3000`. To test another server, set `SMOKE_BASE_URL`, and set `SMOKE_DB` when that server uses a different database from `.env.local`, so cleanup finds the test users:
 
@@ -105,6 +107,13 @@ Setup for a new deployment:
 
 Limits: photos up to 10 MB (JPEG, PNG, WebP, GIF), shrunk in the browser to 2048px when bigger than that or 2 MB; videos up to 2 minutes and 200 MB. A file Mux turns into sound without a picture counts as a failed video. Deleting a post deletes its uploaded photo or video, and changing your profile picture deletes the old upload.
 
+## Code posts
+
+A code post holds up to 5 files (`files: [{ name, language, code }]`), each up to 20,000 characters, in one of the 26 languages listed in `lib/code-files.ts`. A post's `language` is its first file's, which similar posts match on. Posts made before files keep `code` and `language` and show as one file, and `POST /api/posts` still accepts that form.
+
+- **Writing:** computers (a mouse or trackpad, and a screen at least 768px wide) get Monaco, loaded from jsDelivr (`monaco-editor@0.55.1`). Phones get a plain box with a highlighted preview, and so does a computer where Monaco doesn't load within 10 seconds.
+- **Run:** a post with an HTML file shows a live preview, with the post's CSS and JavaScript added. A JavaScript-only post shows its console output. The code runs in an iframe with `sandbox="allow-scripts"` and nothing else, so it can't reach Devgram's storage, cookies or sign-in. A JavaScript-only run happens in a worker inside that frame, which is removed after 5 seconds, so an endless loop can't freeze the page. A preview whose own script never stops can still freeze a browser that runs sandboxed frames in the page's own process.
+
 ## Folder structure
 
 ```
@@ -129,7 +138,7 @@ POST   /api/auth/register            Register, returns a token
 POST   /api/auth/login               Log in, returns a token
 
 GET    /api/posts                    All posts, newest first
-POST   /api/posts                 🔒 Create a post (kind "devbit" for a DevBit)
+POST   /api/posts                 🔒 Create a post (files for code, kind "devbit" for a DevBit)
 GET    /api/posts/:id                One post
 DELETE /api/posts/:id             🔒 Delete your post
 POST   /api/posts/:id/like        🔒 Toggle like

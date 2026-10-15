@@ -1295,6 +1295,61 @@ async function main() {
         JSON.stringify(desktopDevbits),
       )
     }
+
+    console.log("\n[desktop code editor]")
+    await openCodeTab(page)
+    check("desktop, create: the Code tab loads Monaco", await page.waitFor(`Boolean(document.querySelector("main .monaco-editor .view-lines"))`, { timeout: 30000 }))
+    check("desktop, create: instead of the plain box", !(await page.evaluate(`Boolean(document.querySelector("main textarea#code"))`)))
+    // Monaco draws spaces as no-break spaces. In Chrome it takes typing
+    // through an EditContext element; its textarea ignores typing.
+    const monacoText = `document.querySelector("main .monaco-editor .view-lines")?.textContent.replace(/\\u00a0/g, " ")`
+    const typeInMonaco = async (text) => {
+      await page.type("main .monaco-editor .native-edit-context", text)
+      return page.waitFor(`${monacoText} === ${JSON.stringify(text)}`, { timeout: 5000 })
+    }
+    check("desktop, create: typing goes into Monaco", await typeInMonaco("let first = 1"))
+    await page.evaluate(click(addFile))
+    check("desktop, create: a new file starts empty", await page.waitFor(`${monacoText} === ""`, { timeout: 5000 }))
+    await page.type("main input#file-name", "second.js")
+    check("desktop, create: typing goes into the new file", await typeInMonaco("let second = 2"))
+    await page.evaluate(selectTab("Untitled"))
+    check("desktop, create: going back shows the first file's own code", await page.waitFor(`${monacoText} === "let first = 1"`, { timeout: 5000 }))
+    await page.type("main input#file-name", "first.js")
+    const monacoCaption = `monaco ${run}`
+    await page.type("#caption", monacoCaption)
+    await page.evaluate(click(postButton))
+    const monacoPosted = await page.waitFor(`location.pathname === "/"`, { timeout: 15000 })
+    await sleep(800)
+    const monacoPost = await page.evaluate(`(async () => {
+      const card = [...document.querySelectorAll("main [data-post]")].find((el) => el.textContent.includes(${JSON.stringify(monacoCaption)}))
+      if (!card) return null
+      const tabs = [...card.querySelectorAll("[data-file-tab]")]
+      const codes = []
+      for (const tab of tabs) {
+        tab.click()
+        await new Promise((resolve) => setTimeout(resolve, 100))
+        codes.push(card.querySelector("pre").textContent)
+      }
+      return { names: tabs.map((tab) => tab.textContent.trim()), codes }
+    })()`)
+    check(
+      "desktop, create: each file posts with its own code",
+      monacoPosted && JSON.stringify(monacoPost) === JSON.stringify({ names: ["first.js", "second.js"], codes: ["let first = 1", "let second = 2"] }),
+      JSON.stringify(monacoPost),
+    )
+    // With jsDelivr blocked, Monaco can't load: the plain box takes over and says so.
+    const blocked = await browser.newPage(DESKTOP)
+    await blocked.cdp("Network.enable")
+    await blocked.cdp("Network.setBlockedURLs", { urls: ["*cdn.jsdelivr.net*"] })
+    await openCodeTab(blocked)
+    check(
+      "desktop, create: when Monaco can't load, the plain box says so",
+      await blocked.waitFor(
+        `document.querySelector("main").textContent.includes("The full editor couldn't load — you can still write here.") && Boolean(document.querySelector("main textarea#code"))`,
+        { timeout: 15000 },
+      ),
+    )
+    await blocked.close()
   } catch (error) {
     failures++
     console.log(`  FAIL the check stopped early -- ${error.message}`)
