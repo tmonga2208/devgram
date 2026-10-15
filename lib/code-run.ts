@@ -38,7 +38,10 @@ const bridge = (extra: string) => `(() => {
   let timer = 0
   const describe = (value) => {
     if (typeof value === "string") return value
-    if (Object.prototype.toString.call(value) === "[object Error]") {
+    // Errors, and anything shaped like one: the DOMException the sandbox
+    // throws for localStorage, say, which would otherwise print as {}.
+    const named = typeof value === "object" && value !== null && typeof value.name === "string" && typeof value.message === "string"
+    if (named || Object.prototype.toString.call(value) === "[object Error]") {
       return value.name + ": " + String(value.message).replace("Failed to execute 'importScripts' on 'WorkerGlobalScope': ", "")
     }
     if (typeof value === "function") return "function " + (value.name || "(anonymous)")

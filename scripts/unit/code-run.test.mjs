@@ -161,6 +161,29 @@ test("the page bridge sends console output, alerts and errors to the parent page
   ])
 })
 
+test("the bridge names errors that aren't Error objects, like the sandbox's own DOMExceptions", async () => {
+  const posted = []
+  const listeners = {}
+  const context = vm.createContext({
+    window: {},
+    parent: { postMessage: (message) => posted.push(structuredClone(message)) },
+    addEventListener: (type, listener) => (listeners[type] = listener),
+    setTimeout,
+    clearTimeout,
+  })
+  vm.runInContext(PAGE_BRIDGE, context)
+  // What reading localStorage throws in a frame without allow-same-origin.
+  const denied = new DOMException("The document is sandboxed and lacks the 'allow-same-origin' flag.", "SecurityError")
+  listeners.error({ error: denied, preventDefault: () => {} })
+  context.denied = denied
+  vm.runInContext("console.error('caught:', denied)", context)
+  await sleep(150)
+  assert.deepEqual(posted.flatMap((message) => message.lines).map((line) => line.text), [
+    "SecurityError: The document is sandboxed and lacks the 'allow-same-origin' flag.",
+    "caught: SecurityError: The document is sandboxed and lacks the 'allow-same-origin' flag.",
+  ])
+})
+
 test("reads only well-formed messages from a run frame, and cuts what it keeps", () => {
   assert.deepEqual(readRunMessage({ devgramRun: "done" }), { done: true })
   for (const data of [null, "done", 5, {}, { devgramRun: "lines" }, { devgramRun: "lines", lines: "x" }, { devgramRun: "other" }]) {
