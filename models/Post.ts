@@ -16,7 +16,11 @@ export interface IPost extends mongoose.Document {
   };
   image?: string;
   video?: string;
+  // A code post's files (lib/code-files.ts). Code posts from before files
+  // have `code` instead.
+  files?: { name: string; language: string; code: string }[];
   code?: string;
+  // A code post's language: its first file's. Similar posts match on it.
   language?: string;
   // A regular post, or a DevBit (a short video with its own feed). Posts
   // stored before DevBits have no kind and are regular posts.
@@ -81,6 +85,20 @@ const postSchema = new mongoose.Schema<IPost>(
     },
     video: {
       type: String,
+    },
+    files: {
+      type: [
+        new mongoose.Schema(
+          {
+            name: { type: String, default: '' },
+            language: { type: String, required: true },
+            code: { type: String, required: true },
+          },
+          { _id: false },
+        ),
+      ],
+      // Posts without code get no empty list.
+      default: undefined,
     },
     code: {
       type: String,

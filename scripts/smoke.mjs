@@ -7,7 +7,7 @@ import { readFile } from "node:fs/promises"
 import { BlobNotFoundError, head, list } from "@vercel/blob"
 import { put } from "@vercel/blob/client"
 import Mux, { NotFoundError } from "@mux/mux-node"
-import { assertSameDatabase, removeTestUsers } from "./lib/test-users.mjs"
+import { assertSameDatabase, insertLegacyCodePost, removeTestUsers } from "./lib/test-users.mjs"
 
 const BASE = process.env.SMOKE_BASE_URL || "http://localhost:3000"
 const run = Math.random().toString(36).slice(2, 8)
@@ -828,6 +828,91 @@ const sections = {
     )
     const gone = await api("GET", `/api/posts/${bitId}`)
     check("a deleted DevBit is gone", typeof bitId === "string" && gone.status === 404, `status ${gone.status}`)
+  },
+  async code() {
+    await ensureUsers()
+    const { a, b } = state
+    const post = (token, body) => api("POST", "/api/posts", { token, body: { caption: `code ${run}`, ...body } })
+    const file = (name, language, code) => ({ name, language, code })
+    // Files compared by value: names, languages and code, in order.
+    const same = (actual, expected) =>
+      JSON.stringify(actual?.map?.((f) => [f.name, f.language, f.code])) ===
+      JSON.stringify(expected.map((f) => [f.name, f.language, f.code]))
+
+    const one = await post(a.token, { files: [file("", "go", "package main\n")] })
+    check("a post with one unnamed file is 201", one.status === 201, `status ${one.status} ${one.text.slice(0, 120)}`)
+    check("it comes back with its file", same(one.data?.files, [file("", "go", "package main\n")]), JSON.stringify(one.data?.files))
+    check("its language is its file's, and it has no code field", one.data?.language === "go" && one.data?.code === undefined)
+
+    const three = [
+      file("index.html", "html", "<h1>Hi</h1>"),
+      file("style.css", "css", "h1 { color: red }"),
+      file("app.js", "javascript", "console.log(1)"),
+    ]
+    const several = await post(a.token, { files: three })
+    check("a three-file post keeps its files in order", several.status === 201 && same(several.data?.files, three), several.text.slice(0, 160))
+    check("a post's language is its first file's", several.data?.language === "html")
+    const fetched = await api("GET", `/api/posts/${several.data?._id}`)
+    check("reading the post back gives the same files", same(fetched.data?.files, three), fetched.text.slice(0, 160))
+    const trimmed = await post(a.token, { files: [file("  main.py  ", "python", "print(1)")] })
+    check("file names are trimmed", trimmed.data?.files?.[0]?.name === "main.py", JSON.stringify(trimmed.data?.files))
+
+    const refused = [
+      ["six files", { files: Array.from({ length: 6 }, (_, i) => file(`f${i}.js`, "javascript", "x")) }, "A post can have up to 5 files"],
+      ["an unnamed file among several", { files: [file("a.js", "javascript", "x"), file("", "javascript", "y")] }, "Give each file a name"],
+      ["two files with one name", { files: [file("a.js", "javascript", "x"), file("a.js", "javascript", "y")] }, "Two files can't have the same name"],
+      ["a file over 20,000 characters", { files: [file("a.js", "javascript", "x".repeat(20001))] }, "Each file can be up to 20,000 characters"],
+      ["a file of only spaces", { files: [file("a.js", "javascript", " \n ")] }, "A file can't be empty"],
+      ["a name with a slash", { files: [file("src/a.js", "javascript", "x")] }, "File names can be up to 100 characters, without / or \\"],
+      ["a name over 100 characters", { files: [file(`${"n".repeat(98)}.js`, "javascript", "x")] }, "File names can be up to 100 characters, without / or \\"],
+      ["a language not in the list", { files: [file("a.cob", "cobol", "x")] }, "Choose a language from the list"],
+      ["files that aren't a list", { files: "a.js" }, "Files must be a list of { name, language, code }"],
+      ["an empty list of files", { files: [] }, "Files must be a list of { name, language, code }"],
+      ["files and code together", { files: [file("a.js", "javascript", "x")], code: "y" }, "Send either files or code, not both"],
+      ["the old form in a language not in the list", { code: "x", language: "cobol" }, "Choose a language from the list"],
+    ]
+    for (const [what, body, message] of refused) {
+      const res = await post(a.token, body)
+      check(`${what}: 400 "${message}"`, res.status === 400 && res.data?.error === message, `status ${res.status} ${res.text.slice(0, 120)}`)
+    }
+
+    const old = await post(a.token, { code: "fn main() {}", language: "rust" })
+    check("the old code and language form still makes a post", old.status === 201, `status ${old.status}`)
+    check(
+      "it is stored as one file with no name",
+      same(old.data?.files, [file("", "rust", "fn main() {}")]) && old.data?.language === "rust" && old.data?.code === undefined,
+      old.text.slice(0, 160),
+    )
+    const noLanguage = await post(a.token, { code: "let a = 1" })
+    check("the old form without a language is JavaScript", same(noLanguage.data?.files, [file("", "javascript", "let a = 1")]), noLanguage.text.slice(0, 160))
+    const blank = await post(a.token, { code: "   " })
+    check("blank code still makes a caption-only post", blank.status === 201 && blank.data?.files === undefined, blank.text.slice(0, 160))
+    const photo = await post(a.token, { image: "https://example.com/a.png" })
+    check("a photo post has no files", photo.status === 201 && photo.data?.files === undefined, photo.text.slice(0, 160))
+
+    const legacyId = await insertLegacyCodePost(names.a, { caption: `stored the old way ${run}`, code: "print('old')", language: "python" })
+    const legacy = await api("GET", `/api/posts/${legacyId}`)
+    check(
+      "a post stored before files comes back with its code and language",
+      legacy.data?.code === "print('old')" && legacy.data?.language === "python" && legacy.data?.files === undefined,
+      legacy.text.slice(0, 160),
+    )
+
+    // The newest Go post, by someone else, comes first among similar posts.
+    const goByB = await post(b.token, { files: [file("main.go", "go", "package main")] })
+    const similar = await api("GET", `/api/posts/similar/${one.data?._id}`)
+    check(
+      "similar posts match a post with files on its language",
+      Array.isArray(similar.data) && similar.data[0]?._id === goByB.data?._id,
+      `first ${similar.data?.[0]?._id}, wanted ${goByB.data?._id}`,
+    )
+
+    const devbit = await post(a.token, { kind: "devbit", videoUploadId: "x", files: [file("a.js", "javascript", "x")] })
+    check(
+      "a DevBit can't have files",
+      devbit.status === 400 && devbit.data?.error === "A DevBit is a video and a caption only",
+      devbit.text.slice(0, 120),
+    )
   },
 }
 

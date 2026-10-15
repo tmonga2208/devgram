@@ -17,6 +17,7 @@ import { CodeBlock } from "@/components/code-block"
 import { VideoPlayer } from "@/components/video-player"
 import { MuxVideo } from "@/components/mux-video"
 import type { PostType } from "@/lib/types"
+import { postFiles } from "@/lib/code-files"
 import toast from "react-hot-toast"
 
 interface PostProps {
@@ -38,6 +39,8 @@ export function Post({ post }: PostProps) {
   const isLiked = !!user && (post.likedBy || []).includes(user.username)
   const isSaved = !!user && (post.savedBy || []).includes(user.username)
   const comments = post.comments || []
+  // A code post's first file (posts from before files keep their code on the post).
+  const [firstFile] = postFiles(post)
 
   // Signed-out visitors are sent to log in instead of getting a failed request.
   const requireUser = () => {
@@ -129,15 +132,15 @@ export function Post({ post }: PostProps) {
           <MuxVideo playbackId={post.muxVideo.playbackId} aspectRatio={post.muxVideo.aspectRatio} title={post.caption} />
         ) : post.video ? (
           <VideoPlayer url={post.video} />
-        ) : post.code ? (
+        ) : firstFile ? (
           <div className="bg-gray-100 dark:bg-gray-800 p-4 overflow-x-auto">
             <div className="flex items-center mb-2">
               <Code className="h-4 w-4 mr-2" />
               <span className="text-sm text-gray-500 dark:text-gray-400">
-                {post.language || "javascript"}
+                {firstFile.language}
               </span>
             </div>
-            <CodeBlock code={post.code} language={post.language || "javascript"} />
+            <CodeBlock code={firstFile.code} language={firstFile.language} />
           </div>
         ) : (
           <div className="h-64 bg-gray-200 dark:bg-gray-800 flex items-center justify-center">

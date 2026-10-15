@@ -11,6 +11,7 @@ import { VideoPlayer } from "./video-player"
 import { MuxVideo } from "@/components/mux-video"
 import { muxThumbnailUrl } from "@/lib/media-urls"
 import type { PostType } from "@/lib/types"
+import { postFiles } from "@/lib/code-files"
 import { usePosts } from "@/contexts/posts-context"
 import { useAuth } from "@/contexts/auth-context"
 import { formatDistanceToNow } from "date-fns"
@@ -99,6 +100,8 @@ export function PostDetail({ id }: PostDetailProps) {
   const isLiked = !!user && (post.likedBy || []).includes(user.username)
   const isSaved = !!user && (post.savedBy || []).includes(user.username)
   const comments = post.comments || []
+  // A code post's first file (posts from before files keep their code on the post).
+  const [firstFile] = postFiles(post)
 
   const requireUser = () => {
     if (user) return true
@@ -136,7 +139,7 @@ export function PostDetail({ id }: PostDetailProps) {
           {post.muxVideo && (
             <MuxVideo playbackId={post.muxVideo.playbackId} aspectRatio={post.muxVideo.aspectRatio} title={post.caption} />
           )}
-          {post.code && <CodeBlock code={post.code} language={post.language || "javascript"} />}
+          {firstFile && <CodeBlock code={firstFile.code} language={firstFile.language} />}
 
           <div className="p-4 space-y-4">
             <div className="flex items-center justify-between">
@@ -205,7 +208,7 @@ export function PostDetail({ id }: PostDetailProps) {
                 ) : similarPost.muxVideo ? (
                   // eslint-disable-next-line @next/next/no-img-element -- Mux thumbnail
                   <img src={muxThumbnailUrl(similarPost.muxVideo.playbackId, 320)} alt="Video thumbnail" loading="lazy" className="h-full w-full object-cover" />
-                ) : similarPost.code ? (
+                ) : postFiles(similarPost).length > 0 ? (
                   <div className="flex h-full w-full items-center justify-center bg-zinc-950 text-zinc-50">
                     <Code className="h-8 w-8" />
                   </div>

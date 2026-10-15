@@ -1,3 +1,5 @@
+import type { CodeFile } from "@/lib/code-files"
+
 export interface NotificationSettings {
   email: boolean
   push: boolean
@@ -45,6 +47,9 @@ export interface PostType {
   caption: string
   image?: string
   video?: string
+  // A code post's files. Code posts from before files have `code` and
+  // `language` instead; postFiles() reads either.
+  files?: CodeFile[]
   code?: string
   language?: string
   kind?: "post" | "devbit"

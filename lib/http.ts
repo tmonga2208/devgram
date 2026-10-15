@@ -10,8 +10,6 @@ export const LIMITS = {
   bio: 500,
   url: 2048,
   caption: 2200,
-  code: 20000,
-  language: 30,
   comment: 1000,
   message: 2000,
 } as const

@@ -6,6 +6,7 @@ import { getAuthUser, requireAuth } from '@/lib/auth';
 import { LIMITS, handleRouteError, isHttpUrl, jsonError, readJson } from '@/lib/http';
 import { notifyMentions } from '@/lib/notifications';
 import { toPublicPost } from '@/lib/post-response';
+import { parseFiles, type CodeFile } from '@/lib/code-files';
 import { DEVBIT_LENGTH, VIDEO_LENGTH, videoAssetProblem } from '@/lib/media-rules';
 import { isPostKind, withoutDevBits } from '@/lib/post-kinds';
 import { deleteVideoAsset, findVideoUpload, publicPlaybackId } from '@/lib/mux';
@@ -43,16 +44,22 @@ export async function POST(req: Request) {
 
     const image = optionalString(body.image);
     const video = optionalString(body.video);
-    // Code keeps its own whitespace, so it is not trimmed.
-    const code = typeof body.code === 'string' && body.code.trim() ? body.code : undefined;
-    const language = optionalString(body.language);
+    // A code post sends `files`. The older form, `code` with an optional
+    // `language`, still works and becomes one file without a name. Code keeps
+    // its own whitespace, so it is not trimmed.
+    const oldCode = typeof body.code === 'string' && body.code.trim() ? body.code : undefined;
+    if (body.files !== undefined && oldCode) return jsonError('Send either files or code, not both', 400);
+    let files: CodeFile[] | undefined;
+    if (body.files !== undefined || oldCode) {
+      const parsed = parseFiles(
+        body.files !== undefined
+          ? body.files
+          : [{ name: '', language: optionalString(body.language) ?? 'javascript', code: oldCode }],
+      );
+      if ('error' in parsed) return jsonError(parsed.error, 400);
+      files = parsed.files;
+    }
 
-    if (code && code.length > LIMITS.code) {
-      return jsonError(`Code must be ${LIMITS.code} characters or fewer`, 400);
-    }
-    if (language && language.length > LIMITS.language) {
-      return jsonError(`Language must be ${LIMITS.language} characters or fewer`, 400);
-    }
     if (image && image.length > LIMITS.url) return jsonError('Image URL is too long', 400);
     if (video && video.length > LIMITS.url) return jsonError('Video URL is too long', 400);
     if (image && !isHttpUrl(image)) return jsonError('Image must be an http(s) URL', 400);
@@ -63,7 +70,7 @@ export async function POST(req: Request) {
     if (!isPostKind(kind)) return jsonError('Kind must be "post" or "devbit"', 400);
     if (kind === 'devbit') {
       if (!videoUploadId) return jsonError('A DevBit needs an uploaded video', 400);
-      if (image || video || code) return jsonError('A DevBit is a video and a caption only', 400);
+      if (image || video || files) return jsonError('A DevBit is a video and a caption only', 400);
     }
 
     await connectToDatabase();
@@ -108,8 +115,8 @@ export async function POST(req: Request) {
       image,
       video,
       muxVideo,
-      code,
-      language: code ? language : undefined,
+      files,
+      language: files?.[0].language,
     });
 
     await notifyMentions(auth.username, caption, 'mentioned you in a post', String(post._id));
