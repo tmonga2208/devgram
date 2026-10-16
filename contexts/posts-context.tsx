@@ -3,13 +3,14 @@
 import { createContext, useCallback, useContext, useState, useEffect, ReactNode } from 'react';
 import { useAuth } from './auth-context';
 import type { PostType, CommentType } from "@/lib/types"
-import type { CodeFile } from '@/lib/code-files';
+import type { FileRequest } from '@/lib/code-files';
 
 export interface NewPost {
   caption: string;
   image?: string;
   video?: string;
-  files?: CodeFile[];
+  // GitHub files go without their code: the server fetches it from GitHub.
+  files?: FileRequest[];
   videoUploadId?: string;
   kind?: 'post' | 'devbit';
 }

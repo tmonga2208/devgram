@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import type { CodeFile } from '@/lib/code-files';
 
 export interface IComment {
   _id: mongoose.Types.ObjectId;
@@ -18,7 +19,7 @@ export interface IPost extends mongoose.Document {
   video?: string;
   // A code post's files (lib/code-files.ts). Code posts from before files
   // have `code` instead.
-  files?: { name: string; language: string; code: string }[];
+  files?: CodeFile[];
   code?: string;
   // A code post's language: its first file's. Similar posts match on it.
   language?: string;
@@ -93,6 +94,30 @@ const postSchema = new mongoose.Schema<IPost>(
             name: { type: String, default: '' },
             language: { type: String, required: true },
             code: { type: String, required: true },
+            // A file taken from GitHub (lib/github.ts): where, at which commit.
+            github: {
+              type: new mongoose.Schema(
+                {
+                  owner: { type: String, required: true },
+                  repo: { type: String, required: true },
+                  commit: { type: String, required: true },
+                  path: { type: String, required: true },
+                },
+                { _id: false },
+              ),
+              required: false,
+            },
+            // The lines a GitHub file points out, counted from 1.
+            marked: {
+              type: new mongoose.Schema(
+                {
+                  from: { type: Number, required: true },
+                  to: { type: Number, required: true },
+                },
+                { _id: false },
+              ),
+              required: false,
+            },
           },
           { _id: false },
         ),

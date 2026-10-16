@@ -10,6 +10,7 @@ import { parseFiles, type CodeFile } from '@/lib/code-files';
 import { DEVBIT_LENGTH, VIDEO_LENGTH, videoAssetProblem } from '@/lib/media-rules';
 import { isPostKind, withoutDevBits } from '@/lib/post-kinds';
 import { deleteVideoAsset, findVideoUpload, publicPlaybackId } from '@/lib/mux';
+import { fillGitHubFiles } from '@/lib/github';
 
 // All regular posts, newest first. DevBits have their own feed (/api/devbits).
 export async function GET(req: Request) {
@@ -51,9 +52,11 @@ export async function POST(req: Request) {
     if (body.files !== undefined && oldCode) return jsonError('Send either files or code, not both', 400);
     let files: CodeFile[] | undefined;
     if (body.files !== undefined || oldCode) {
+      // A GitHub file's code comes from GitHub, at its commit, never from the
+      // request (fillGitHubFiles answers GitHub's problems as HttpErrors).
       const parsed = parseFiles(
         body.files !== undefined
-          ? body.files
+          ? await fillGitHubFiles(body.files)
           : [{ name: '', language: optionalString(body.language) ?? 'javascript', code: oldCode }],
       );
       if ('error' in parsed) return jsonError(parsed.error, 400);

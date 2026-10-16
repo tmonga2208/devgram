@@ -1040,6 +1040,52 @@ const sections = {
       duplicate = error
     }
     check("so a second account can't take the same GitHub account", duplicate?.code === 11000, duplicate ? duplicate.message : "the second account took it")
+    // Posting: the server fetches each GitHub file's code itself, at its commit.
+    const post = (files) => api("POST", "/api/posts", { token: a.token, body: { caption: `github ${run}`, files } })
+    const fromGitHub = (path, extra = {}) => ({ name: path.split("/").pop(), language: "typescript", github: { owner, repo, commit, path }, ...extra })
+    const real = await post([fromGitHub("lib/code-files.ts", { code: "not what GitHub has", marked: { from: 80, to: 85 } })])
+    const stored = real.data?.files?.[0]
+    check(
+      "a GitHub file posts with the code GitHub has at that commit, not code the request sent",
+      real.status === 201 && typeof state.githubCode === "string" && stored?.code === state.githubCode,
+      `status ${real.status} ${real.text.slice(0, 160)}`,
+    )
+    check(
+      "it keeps its source and marked lines",
+      JSON.stringify(stored?.github) === JSON.stringify({ owner, repo, commit, path: "lib/code-files.ts" }) && stored?.marked?.from === 80 && stored?.marked?.to === 85,
+      JSON.stringify({ github: stored?.github, marked: stored?.marked }),
+    )
+    state.githubPostId = real.data?._id
+    const reread = await api("GET", `/api/posts/${real.data?._id}`)
+    check("reading the post back gives the same file", reread.data?.files?.[0]?.code === state.githubCode && reread.data?.files?.[0]?.marked?.to === 85)
+    const mixed = await post([fromGitHub("lib/regex.ts"), { name: "notes.txt", language: "text", code: "written here" }])
+    check(
+      "GitHub files and written files mix, in order; the post's language is the first file's",
+      mixed.status === 201 && mixed.data?.files?.map((f) => f.name).join(" ") === "regex.ts notes.txt" &&
+        mixed.data?.language === "typescript" && mixed.data?.files?.[1]?.github === undefined,
+      mixed.text.slice(0, 200),
+    )
+    const big = "x".repeat(20000)
+    const badSource = "Files from GitHub need an owner, a repository, a full commit and a path"
+    for (const [what, files, status, message] of [
+      ["a branch name in place of a commit", [fromGitHub("lib/regex.ts", { github: { owner, repo, commit: "master", path: "lib/regex.ts" } })], 400, badSource],
+      ["a path that climbs out of the repository", [fromGitHub("lib/regex.ts", { github: { owner, repo, commit, path: "../x.ts" } })], 400, badSource],
+      ["a file that isn't there", [fromGitHub("lib/nope.ts")], 404, "That file isn't in this repository"],
+      ["marks past the end of the file", [fromGitHub("lib/code-files.ts", { marked: { from: 120, to: 127 } })], 400, "Marked lines must be inside the file"],
+      ["marks on a written file", [{ name: "a.js", language: "javascript", code: "x", marked: { from: 1, to: 1 } }], 400, "Only files from GitHub can have marked lines"],
+      [
+        "files over 100,000 characters together",
+        [fromGitHub("scripts/mobile-check.mjs", { language: "javascript" }), { name: "a.js", language: "javascript", code: big }, { name: "b.js", language: "javascript", code: big }],
+        400,
+        "A post's files can add up to 100,000 characters",
+      ],
+      ["two GitHub files with one name", [fromGitHub("lib/regex.ts"), fromGitHub("lib/regex.ts")], 400, "Two files can't have the same name"],
+    ]) {
+      const res = await post(files)
+      check(`posting ${what}: ${status} "${message}"`, res.status === status && res.data?.error === message, `status ${res.status} ${res.text.slice(0, 120)}`)
+    }
+    const renamed = await post([fromGitHub("lib/regex.ts"), fromGitHub("lib/regex.ts", { name: "regex-copy.ts" })])
+    check("renaming one of them posts both", renamed.status === 201, `status ${renamed.status} ${renamed.text.slice(0, 120)}`)
   },
 }
 
