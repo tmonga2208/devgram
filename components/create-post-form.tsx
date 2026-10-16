@@ -22,6 +22,9 @@ import type { NewPost } from "@/contexts/posts-context"
 import { UPLOAD_FAILED } from "@/lib/upload-client"
 import { DEVBIT_LENGTH } from "@/lib/media-rules"
 import toast from "react-hot-toast"
+import { useGitHubReturn } from "@/hooks/use-github-return"
+import { saveDraft, takeDraft } from "@/lib/code-draft"
+import { connectHref } from "@/lib/github-links"
 
 const TABS = ["image", "video", "code", "devbit"]
 
@@ -34,6 +37,19 @@ export function CreatePostForm({ initialTab }: { initialTab?: string }) {
   const [activeTab, setActiveTab] = useState(initialTab && TABS.includes(initialTab) ? initialTab : "image")
   const [caption, setCaption] = useState("")
   const [files, setFiles] = useState<DraftFile[]>(() => [newDraftFile()])
+  useGitHubReturn()
+  // Back from connecting GitHub: the Code tab's post comes back as it was.
+  useEffect(() => {
+    if (initialTab !== "code") return
+    const draft = takeDraft()
+    if (!draft) return
+    setCaption(draft.caption)
+    setFiles(draft.files.map((file) => newDraftFile(file.language, file)))
+  }, [initialTab])
+  const connectGitHub = () => {
+    saveDraft({ caption, files: files.map(({ name, language, code, github, marked }) => ({ name, language, code, github, marked })) })
+    window.location.assign(connectHref("/create?tab=code"))
+  }
   const [imageUrl, setImageUrl] = useState("")
   const [videoUrl , setVideoUrl] = useState("")
   const { photo, select: selectPhoto, clear: clearPhoto } = usePhotoUpload("post")
@@ -114,9 +130,10 @@ export function CreatePostForm({ initialTab }: { initialTab?: string }) {
       if (bit.phase !== "ready" || !bit.uploadId) return setPublishWhenReady(true)
       return publish({ caption, videoUploadId: bit.uploadId, kind: "devbit" })
     }
-    const parsed = parseFiles(files.map(({ name, language, code }) => ({ name, language, code })))
+    const parsed = parseFiles(files.map(({ name, language, code, github, marked }) => ({ name, language, code, github, marked })))
     if ("error" in parsed) return setError(parsed.error)
-    return publish({ caption, files: parsed.files })
+    // GitHub files go without their code: the server fetches it from GitHub.
+    return publish({ caption, files: parsed.files.map(({ code, ...file }) => (file.github ? file : { ...file, code })) })
   }
 
   return (
@@ -227,7 +244,7 @@ export function CreatePostForm({ initialTab }: { initialTab?: string }) {
                 </div>
               </TabsContent>
               <TabsContent value="code" className="mt-4 space-y-4">
-                <CodeFilesEditor files={files} onChange={setFiles} />
+                <CodeFilesEditor files={files} onChange={setFiles} onConnectGitHub={connectGitHub} />
               </TabsContent>
               <TabsContent value="devbit" className="mt-4 space-y-4">
                 <MediaPicker

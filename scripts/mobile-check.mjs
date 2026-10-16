@@ -898,6 +898,166 @@ async function main() {
       JSON.stringify(postedCode),
     )
 
+    console.log("\n[from github]")
+    const picker = `document.querySelector("[data-github-picker]")`
+    const fromGitHubButton = `[...document.querySelectorAll("main button")].find((b) => b.textContent.includes("From GitHub"))`
+    const tabNames = `[...document.querySelectorAll("main [data-file-tab]")].map((tab) => tab.textContent.trim()).join(" ")`
+    const panelState = `(() => {
+      const panel = document.querySelector("main [data-github-file]")
+      return panel && {
+        label: panel.querySelector("[data-github-label]")?.textContent ?? null,
+        editable: Boolean(document.querySelector("main textarea#code, main .monaco-editor")),
+        from: document.querySelector("main #marked-from")?.value,
+        to: document.querySelector("main #marked-to")?.value,
+        marked: [...panel.querySelectorAll("[data-line-numbers] [data-marked]")].map((n) => n.textContent).join(","),
+      }
+    })()`
+    const regexLabel = `${GITHUB_FIXTURE.owner}/${GITHUB_FIXTURE.repo} · lib/regex.ts`
+    await openCodeTab(page)
+    const fromHeight = await page.evaluate(buttonHeight("From GitHub"))
+    check(`create, code: From GitHub is at least ${TAP_TARGET}px tall`, fromHeight >= TAP_TARGET, `height ${fromHeight}px`)
+    await page.evaluate(click(fromGitHubButton))
+    check("create, from GitHub: the picker opens", await page.waitFor(picker, { timeout: 5000 }))
+    await sleep(400)
+    const pickerBox = await page.evaluate(`(() => {
+      const box = ${picker}?.getBoundingClientRect()
+      return box ? { left: box.left, top: box.top, width: box.width, height: box.height, scrollWidth: ${picker}.scrollWidth } : null
+    })()`)
+    check(
+      "create, from GitHub: on a phone the picker fills the screen",
+      pickerBox?.left === 0 && pickerBox.top === 0 && pickerBox.width === PHONE.width && Math.abs(pickerBox.height - PHONE.height) <= 1 && pickerBox.scrollWidth <= PHONE.width,
+      JSON.stringify(pickerBox),
+    )
+    await page.cdp("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 })
+    check("create, from GitHub: Escape closes the picker", await page.waitFor(`!${picker}`, { timeout: 5000 }))
+
+    // Back from GitHub: the Code tab's post comes back as it was, a GitHub file
+    // and its marked lines included (the fixture's lib/regex.ts, from git).
+    // Needs no GitHub keys, so the panel's checks run every time.
+    const kept = {
+      caption: `kept ${run}`,
+      files: [
+        {
+          name: "regex.ts",
+          language: "typescript",
+          code: execFileSync("git", ["show", `${GITHUB_FIXTURE.commit}:lib/regex.ts`], { encoding: "utf8" }),
+          github: { ...GITHUB_FIXTURE, path: "lib/regex.ts" },
+          marked: { from: 2, to: 3 },
+        },
+      ],
+    }
+    await page.evaluate(`sessionStorage.setItem("devgram:code-draft", ${JSON.stringify(JSON.stringify(kept))})`)
+    await open(page, `/create?tab=code&github=connected&github_login=${GITHUB_FIXTURE.owner}`)
+    check(
+      "create, from GitHub: coming back puts the post back as it was",
+      await page.waitFor(`document.querySelector("#caption")?.value === ${JSON.stringify(kept.caption)} && ${tabNames} === "regex.ts"`, { timeout: 5000 }),
+      await page.evaluate(tabNames),
+    )
+    check(
+      "create, from GitHub: and says GitHub is connected",
+      await page.waitFor(`document.body.textContent.includes("Connected GitHub as @${GITHUB_FIXTURE.owner}")`, { timeout: 5000 }),
+    )
+    check("create, from GitHub: the kept post is used once", (await page.evaluate(`sessionStorage.getItem("devgram:code-draft")`)) === null)
+    const panel = await page.evaluate(panelState)
+    check("create, from GitHub: a GitHub file's code is read-only and says where it's from", panel?.editable === false && panel?.label === regexLabel, JSON.stringify(panel))
+    check("create, from GitHub: its marked lines show in the Lines boxes and in the code", panel?.from === "2" && panel?.to === "3" && panel?.marked === "2,3", JSON.stringify(panel))
+    const codeTab = await page.evaluate(SHELL)
+    check("create, from GitHub: the Code tab with a GitHub file fits the width of the screen", fitsScreen(codeTab, PHONE), widthDetail(codeTab, PHONE))
+    const boxHeight = await page.evaluate(`document.querySelector("main #marked-from")?.getBoundingClientRect().height ?? 0`)
+    check(`create, from GitHub: the Lines boxes are at least ${TAP_TARGET}px tall`, boxHeight >= TAP_TARGET, `height ${boxHeight}px`)
+    // A range typed backwards marks it the right way round.
+    const retype = async (selector, text) => {
+      await page.evaluate(`(() => { const input = document.querySelector("main ${selector}"); input.focus(); input.select() })()`)
+      await page.cdp("Input.insertText", { text })
+    }
+    await retype("#marked-from", "3")
+    await retype("#marked-to", "1")
+    await page.evaluate(`document.querySelector("main #marked-to").blur()`)
+    check(
+      "create, from GitHub: a range typed backwards marks lines 1 to 3",
+      await page.waitFor(`(() => { const p = ${panelState}; return p && p.marked === "1,2,3" && p.from === "1" && p.to === "3" })()`, { timeout: 5000 }),
+      JSON.stringify(await page.evaluate(panelState)),
+    )
+    await page.evaluate(`document.querySelector('main [data-github-file] [data-line="2"]').click()`)
+    check(
+      "create, from GitHub: clicking a line number marks just that line",
+      await page.waitFor(`(() => { const p = ${panelState}; return p && p.marked === "2" && p.from === "2" && p.to === "2" })()`, { timeout: 5000 }),
+    )
+    await page.evaluate(`document.querySelector('main [data-github-file] [data-line="3"]').dispatchEvent(new MouseEvent("click", { bubbles: true, shiftKey: true }))`)
+    check(
+      "create, from GitHub: shift-clicking another stretches the mark to it",
+      await page.waitFor(`(() => { const p = ${panelState}; return p && p.marked === "2,3" && p.from === "2" && p.to === "3" })()`, { timeout: 5000 }),
+    )
+
+    if (!GITHUB_KEYS) {
+      console.log("  skip the picker's GitHub parts (GITHUB_CLIENT_ID or GITHUB_CLIENT_SECRET is not set)")
+    } else {
+      const repoRow = `${picker}?.querySelector('[data-github-repo="${GITHUB_FIXTURE.repo}"]')`
+      const entry = (path) => `${picker}?.querySelector('[data-github-entry="${path}"]')`
+      await openCodeTab(page)
+      await page.evaluate(click(fromGitHubButton))
+      check("create, from GitHub: your repositories are listed", await page.waitFor(repoRow, { timeout: 20000 }))
+      const repoHeight = await page.evaluate(`${repoRow}.getBoundingClientRect().height`)
+      check(`create, from GitHub: repository rows are at least ${TAP_TARGET}px tall`, repoHeight >= TAP_TARGET, `height ${repoHeight}px`)
+
+      // A pasted file link with lines arrives as a read-only tab with those lines marked.
+      await page.type(
+        "[data-github-picker] [data-github-link-input]",
+        `https://github.com/${GITHUB_FIXTURE.owner}/${GITHUB_FIXTURE.repo}/blob/${GITHUB_FIXTURE.commit}/lib/regex.ts#L2-L3`,
+      )
+      await page.evaluate(click(`[...${picker}.querySelectorAll("button")].find((b) => b.textContent.trim() === "Open")`))
+      check(
+        "create, from GitHub: a pasted file link replaces the empty file and closes the picker",
+        await page.waitFor(`!${picker} && ${tabNames} === "regex.ts"`, { timeout: 20000 }),
+        await page.evaluate(tabNames),
+      )
+      const pasted = await page.evaluate(panelState)
+      check(
+        "create, from GitHub: the link's lines arrive marked",
+        pasted?.label === regexLabel && pasted?.from === "2" && pasted?.to === "3" && pasted?.marked === "2,3",
+        JSON.stringify(pasted),
+      )
+
+      // Browsing: a repository from the list, a folder, then Find a file.
+      await page.evaluate(click(fromGitHubButton))
+      check("create, from GitHub: the picker lists your repositories again", await page.waitFor(repoRow, { timeout: 20000 }))
+      await page.evaluate(click(repoRow))
+      check("create, from GitHub: choosing a repository shows its folders and files", await page.waitFor(entry("lib"), { timeout: 20000 }))
+      await page.evaluate(click(entry("lib")))
+      check("create, from GitHub: opening a folder shows what's inside", await page.waitFor(entry("lib/code-files.ts"), { timeout: 5000 }))
+      const entryHeight = await page.evaluate(`${entry("lib/code-files.ts")}.getBoundingClientRect().height`)
+      check(`create, from GitHub: file rows are at least ${TAP_TARGET}px tall`, entryHeight >= TAP_TARGET, `height ${entryHeight}px`)
+      await page.type("[data-github-picker] input[aria-label='Find a file']", "post-kinds.ts")
+      check(
+        "create, from GitHub: Find a file matches anywhere in the path",
+        await page.waitFor(`${entry("lib/post-kinds.ts")} && ${picker}.querySelectorAll("[data-github-entry]").length === 1`, { timeout: 5000 }),
+      )
+      await page.evaluate(click(entry("lib/post-kinds.ts")))
+      check(
+        "create, from GitHub: choosing a file adds it as another tab",
+        await page.waitFor(`!${picker} && ${tabNames} === "regex.ts post-kinds.ts"`, { timeout: 20000 }),
+        await page.evaluate(tabNames),
+      )
+
+      const githubCaption = `from github ${run}`
+      await page.type("#caption", githubCaption)
+      await page.evaluate(click(postButton))
+      const githubPosted = await page.waitFor(`location.pathname === "/"`, { timeout: 20000 })
+      await sleep(800)
+      const posted = await page.evaluate(`(() => {
+        const card = [...document.querySelectorAll("main [data-post]")].find((el) => el.textContent.includes(${JSON.stringify(githubCaption)}))
+        return card && {
+          tabs: [...card.querySelectorAll("[data-file-tab]")].map((tab) => tab.textContent.trim()).join(" "),
+          label: card.querySelector("[data-github-label]")?.textContent ?? null,
+          marked: [...card.querySelectorAll("[data-line-numbers] [data-marked]")].map((n) => n.textContent).join(","),
+        }
+      })()`)
+      check(
+        "create, from GitHub: the post appears in the feed with where it's from and its marked lines",
+        githubPosted && posted?.tabs === "regex.ts post-kinds.ts" && posted.label === regexLabel && posted.marked === "2,3",
+        JSON.stringify(posted),
+      )
+    }
     console.log("\n[messages]")
     await open(page, "/direct")
     await shellChecks(page, "conversation list", { back: true, tabs, fill: true })
@@ -1387,6 +1547,22 @@ async function main() {
     )
     await open(page, "/create")
     await tabRowChecks(page, "small phone, create", 4)
+    if (githubPostId) {
+      await openCodeTab(page)
+      await page.evaluate(click(`[...document.querySelectorAll("main button")].find((b) => b.textContent.includes("From GitHub"))`))
+      await page.waitFor(`document.querySelector("[data-github-picker]")`, { timeout: 5000 })
+      await sleep(400)
+      const smallPicker = await page.evaluate(`(() => {
+        const el = document.querySelector("[data-github-picker]")
+        return { width: el.getBoundingClientRect().width, scrollWidth: el.scrollWidth }
+      })()`)
+      check(
+        "small phone, create: the picker fits the screen",
+        smallPicker.width === SMALL_PHONE.width && smallPicker.scrollWidth <= SMALL_PHONE.width,
+        JSON.stringify(smallPicker),
+      )
+      await page.cdp("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 })
+    }
 
     console.log("\n[safe areas]")
     await page.setViewport(PHONE)
@@ -1488,6 +1664,23 @@ async function main() {
       monacoPosted && JSON.stringify(monacoPost) === JSON.stringify({ names: ["first.js", "second.js"], codes: ["let first = 1", "let second = 2"] }),
       JSON.stringify(monacoPost),
     )
+    if (githubPostId) {
+      await openCodeTab(page)
+      await page.evaluate(click(`[...document.querySelectorAll("main button")].find((b) => b.textContent.includes("From GitHub"))`))
+      await page.waitFor(`document.querySelector("[data-github-picker]")`, { timeout: 5000 })
+      await sleep(400)
+      const desktopPicker = await page.evaluate(`(() => {
+        const box = document.querySelector("[data-github-picker]").getBoundingClientRect()
+        return { width: box.width, left: box.left, top: box.top }
+      })()`)
+      check(
+        "desktop, create: the picker is a dialog in the middle of the window",
+        desktopPicker.width <= 512 && desktopPicker.left > 0 && desktopPicker.top > 0,
+        JSON.stringify(desktopPicker),
+      )
+      await page.cdp("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 })
+      check("desktop, create: Escape closes the picker", await page.waitFor(`!document.querySelector("[data-github-picker]")`, { timeout: 5000 }))
+    }
     // With jsDelivr blocked, Monaco can't load: the plain box takes over and says so.
     const blocked = await browser.newPage(DESKTOP)
     await blocked.cdp("Network.enable")
