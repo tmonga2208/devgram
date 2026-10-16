@@ -9,7 +9,7 @@ import { mkdir, readFile } from "node:fs/promises"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { launchBrowser } from "./lib/browser.mjs"
-import { GITHUB_FIXTURE, assertSameDatabase, insertGitHubPost, insertLegacyCodePost, removeTestUsers } from "./lib/test-users.mjs"
+import { GITHUB_FIXTURE, assertSameDatabase, insertGitHubPost, insertLegacyCodePost, removeTestUsers, setGitHubAccount } from "./lib/test-users.mjs"
 
 const BASE = process.env.SMOKE_BASE_URL || "http://localhost:3000"
 const SHOTS = process.env.MOBILE_SHOTS
@@ -99,6 +99,10 @@ async function seed() {
     })
   }
   const { a, b } = users
+  // A connected GitHub account, saved the way the callback saves one: GitHub's
+  // sign-in page can't be automated.
+  const githubId = 2_000_000_000 + Math.floor(Math.random() * 1_000_000)
+  await setGitHubAccount(names.a, { id: githubId, login: GITHUB_FIXTURE.owner })
   const image = `${BASE}/icons/icon-512.png`
   await api("POST", "/api/posts", b.token, { caption: `image post ${run}`, image })
   // One unbroken line far wider than a phone: it has to scroll inside its block.
@@ -182,7 +186,7 @@ async function seed() {
     videoPostId = video
     devbits = { one, two, three }
   }
-  return { a, b, postId: code._id, videoPostId, devbits, codePosts, githubPostId }
+  return { a, b, postId: code._id, videoPostId, devbits, codePosts, githubPostId, githubId }
 }
 
 // Everything below this point runs inside the page.
@@ -476,7 +480,7 @@ async function main() {
 
   let browser = null
   try {
-    const { a, b, postId, videoPostId, devbits, codePosts, githubPostId } = await seed()
+    const { a, b, postId, videoPostId, devbits, codePosts, githubPostId, githubId } = await seed()
     const tabs = `Home=/ Explore=/explore Create=/create DevBits=/devbits Profile=/profile/${names.a}`
     browser = await launchBrowser()
     const page = await browser.newPage(PHONE)
@@ -520,6 +524,16 @@ async function main() {
     await open(page, `/profile/${names.a}`)
     await shellChecks(page, "own profile", { back: false, tabs, current: "Profile" })
     await textChecks(page, "own profile", { "a long username": names.a, "a long link in the bio": LONG_LINK })
+    const githubLink = await page.evaluate(`(() => {
+      const link = document.querySelector("main [data-github-link]")
+      return link && { href: link.getAttribute("href"), text: link.textContent.trim() }
+    })()`)
+    check(
+      "own profile: shows the connected GitHub account, linking to it",
+      githubLink?.href === `https://github.com/${GITHUB_FIXTURE.owner}` && githubLink.text === GITHUB_FIXTURE.owner,
+      JSON.stringify(githubLink),
+    )
+    await textChecks(page, "own profile", { "the GitHub link": GITHUB_FIXTURE.owner })
     check(
       "own profile: links to Settings",
       await page.evaluate(`[...document.querySelectorAll('main a[href="/settings"]')].some((a) => a.getBoundingClientRect().width > 0)`),
@@ -554,6 +568,32 @@ async function main() {
         `[...document.querySelectorAll("main button")].some((b) => /log ?out/i.test(b.textContent) && b.getBoundingClientRect().width > 0)`,
       ),
     )
+
+    console.log("\n[github settings]")
+    await open(page, "/settings?tab=account")
+    const githubSettings = `document.querySelector("main [data-github-settings]")`
+    check(
+      "settings: ?tab=account opens the Account tab, which shows the GitHub connection",
+      await page.waitFor(`${githubSettings}?.textContent.includes("Connected as @${GITHUB_FIXTURE.owner}")`, { timeout: 5000 }),
+    )
+    const disconnectHeight = await page.evaluate(buttonHeight("Disconnect"))
+    check(`settings: Disconnect is at least ${TAP_TARGET}px tall`, disconnectHeight >= TAP_TARGET, `height ${disconnectHeight}px`)
+    await page.evaluate(click(`[...document.querySelectorAll("main [data-github-settings] button")].find((b) => b.textContent.trim() === "Disconnect")`))
+    const connectLink = `[...document.querySelectorAll("main [data-github-settings] a")].find((a) => a.textContent.includes("Connect GitHub"))`
+    check(
+      "settings: Disconnect forgets the account and offers Connect GitHub, coming back to this tab",
+      await page.waitFor(`${connectLink}?.getAttribute("href") === "/api/github/connect?return=%2Fsettings%3Ftab%3Daccount"`, { timeout: 5000 }),
+    )
+    const connectHeight = await page.evaluate(`${connectLink}?.getBoundingClientRect().height ?? 0`)
+    check(`settings: Connect GitHub is at least ${TAP_TARGET}px tall`, connectHeight >= TAP_TARGET, `height ${connectHeight}px`)
+    // Connected again for the checks that follow, the way the callback saves it.
+    await setGitHubAccount(names.a, { id: githubId, login: GITHUB_FIXTURE.owner })
+    await open(page, `/settings?github=connected&github_login=${GITHUB_FIXTURE.owner}`)
+    check(
+      "settings: coming back from GitHub says so",
+      await page.waitFor(`document.body.textContent.includes("Connected GitHub as @${GITHUB_FIXTURE.owner}")`, { timeout: 5000 }),
+    )
+    check("settings: and takes the note out of the address", (await page.evaluate("location.search")) === "")
 
     console.log("\n[back arrow]")
     await open(page, "/explore")

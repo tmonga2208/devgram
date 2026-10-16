@@ -13,6 +13,7 @@ export interface User {
   avatar: string;
   bio?: string;
   website?: string;
+  github?: { login: string } | null;
   notificationSettings?: NotificationSettings;
   privacySettings?: PrivacySettings;
 }
@@ -38,6 +39,7 @@ interface AuthContextType {
   logout: () => void;
   isAuthenticated: boolean;
   updateProfile: (data: ProfileUpdate) => Promise<void>;
+  disconnectGitHub: () => Promise<void>;
   authFetch: (input: string, init?: RequestInit) => Promise<Response>;
 }
 
@@ -161,6 +163,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     storeUser(updated as User);
   };
 
+  const disconnectGitHub = async () => {
+    const response = await authFetch('/api/github/connect', { method: 'DELETE' });
+    const updated = await response.json().catch(() => null);
+    if (!response.ok || !updated) {
+      throw new Error(updated?.error || 'Failed to disconnect GitHub');
+    }
+    storeUser(updated as User);
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -172,6 +183,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         logout,
         isAuthenticated: !!user,
         updateProfile,
+        disconnectGitHub,
         authFetch,
       }}
     >

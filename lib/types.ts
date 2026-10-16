@@ -27,6 +27,8 @@ export interface UserType {
   avatar: string
   bio: string
   website: string
+  // The connected GitHub account (app/api/github), shown on the profile.
+  github: { login: string } | null
   followers: number
   following: number
   isVerified: boolean

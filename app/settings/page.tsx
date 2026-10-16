@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useAuth } from "@/contexts/auth-context"
 import { EditProfileForm } from "@/components/edit-profile-form"
 import { AccountSettings } from "@/components/account-settings"
@@ -9,12 +9,23 @@ import { PrivacySettings } from "@/components/privacy-settings"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger, scrollableTabsList } from "@/components/ui/tabs"
 import { MainLayout } from "@/components/main-layout"
+import { GitHubSettings } from "@/components/github-settings"
+import { useGitHubReturn } from "@/hooks/use-github-return"
 import { cn } from "@/lib/utils"
 import { LogOut } from "lucide-react"
+
+const TABS = ["profile", "account", "notifications", "privacy"]
 
 export default function SettingsPage() {
   const { user, logout } = useAuth()
   const [activeTab, setActiveTab] = useState("profile")
+  // ?tab=account opens that tab (connecting GitHub comes back to it), and
+  // ?github=… says how connecting went.
+  useEffect(() => {
+    const tab = new URLSearchParams(window.location.search).get("tab")
+    if (tab && TABS.includes(tab)) setActiveTab(tab)
+  }, [])
+  useGitHubReturn()
 
   if (!user) {
     return null
@@ -39,6 +50,7 @@ export default function SettingsPage() {
 
         <TabsContent value="account" className="mt-6">
           <AccountSettings />
+          <GitHubSettings />
         </TabsContent>
 
         <TabsContent value="notifications" className="mt-6">

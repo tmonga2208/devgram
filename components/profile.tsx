@@ -4,6 +4,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
 import { Bookmark, Clapperboard, Grid, Settings } from "lucide-react"
 import { ProfileDevBits } from "@/components/profile-devbits"
+import { GitHubMark } from "@/components/github-mark"
 import { usePosts } from "@/contexts/posts-context"
 import { useAuth } from "@/contexts/auth-context"
 import { ProfilePost } from "@/components/profile-post"
@@ -167,6 +168,20 @@ export function Profile({ username }: ProfileProps) {
               >
                 {user.website.replace(/^https?:\/\//, "")}
               </a>
+            )}
+            {user.github && (
+              <p>
+                <a
+                  href={`https://github.com/${user.github.login}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  data-github-link
+                  className="inline-flex items-center gap-1.5 text-blue-600 hover:underline"
+                >
+                  <GitHubMark className="h-4 w-4 shrink-0" />
+                  {user.github.login}
+                </a>
+              </p>
             )}
           </div>
         </div>
