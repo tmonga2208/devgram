@@ -1086,6 +1086,83 @@ const sections = {
     }
     const renamed = await post([fromGitHub("lib/regex.ts"), fromGitHub("lib/regex.ts", { name: "regex-copy.ts" })])
     check("renaming one of them posts both", renamed.status === 201, `status ${renamed.status} ${renamed.text.slice(0, 120)}`)
+    // Connecting: everything up to GitHub's sign-in page, and every way the return can fail.
+    const go = (path, cookies = {}) =>
+      fetch(`${BASE}${path}`, {
+        redirect: "manual",
+        headers: { cookie: Object.entries(cookies).map(([name, value]) => `${name}=${value}`).join("; ") },
+      })
+    const connectCookie = (res) =>
+      (res.headers.getSetCookie().find((c) => c.startsWith("github_connect=")) ?? "").split(";")[0].slice("github_connect=".length)
+    const signedOutStart = await go("/api/github/connect?return=%2Fcreate%3Ftab%3Dcode")
+    const toLogin = new URL(signedOutStart.headers.get("location") ?? "/", BASE)
+    check(
+      "connecting while signed out goes to the login page",
+      signedOutStart.status === 307 && toLogin.pathname === "/login" && toLogin.searchParams.get("from") === "/create?tab=code",
+      `${signedOutStart.status} ${toLogin.href}`,
+    )
+    const start = await go("/api/github/connect?return=%2Fcreate%3Ftab%3Dcode", { token: a.token })
+    const authorize = new URL(start.headers.get("location") ?? "/", BASE)
+    check(
+      "connecting sends you to GitHub's sign-in page, asking for no permissions",
+      start.status === 307 && `${authorize.origin}${authorize.pathname}` === "https://github.com/login/oauth/authorize" &&
+        authorize.searchParams.get("client_id") === process.env.GITHUB_CLIENT_ID &&
+        authorize.searchParams.get("redirect_uri") === `${BASE}/api/github/callback` &&
+        authorize.searchParams.get("code_challenge_method") === "S256" &&
+        (authorize.searchParams.get("code_challenge") ?? "").length === 43 && !authorize.searchParams.has("scope"),
+      authorize.href,
+    )
+    const setCookie = start.headers.getSetCookie().find((c) => c.startsWith("github_connect=")) ?? ""
+    check(
+      "it sets a 10-minute, browser-only cookie that only the GitHub routes see",
+      /HttpOnly/i.test(setCookie) && /Path=\/api\/github/i.test(setCookie) && /Max-Age=600/i.test(setCookie) && /SameSite=lax/i.test(setCookie),
+      setCookie,
+    )
+    const attempt = connectCookie(start)
+    const oauthState = authorize.searchParams.get("state")
+    const returnFrom = async (query, cookies) => {
+      const res = await go(`/api/github/callback?${query}`, cookies)
+      const target = new URL(res.headers.get("location") ?? "/", BASE)
+      const cleared = res.headers.getSetCookie().some((c) => c.startsWith("github_connect=") && /Max-Age=0/i.test(c))
+      return { target, result: target.searchParams.get("github"), cleared }
+    }
+    const noCookie = await returnFrom(`code=x&state=${oauthState}`, { token: a.token })
+    check("a return without the cookie fails, back to Settings", noCookie.result === "error" && noCookie.target.pathname === "/settings", noCookie.target.href)
+    const wrongState = await returnFrom("code=x&state=wrong", { token: a.token, github_connect: attempt })
+    check(
+      "a return with the wrong state fails, back where you started, and clears the cookie",
+      wrongState.result === "error" && wrongState.target.pathname === "/create" && wrongState.target.searchParams.get("tab") === "code" && wrongState.cleared,
+      wrongState.target.href,
+    )
+    const someoneElse = await returnFrom(`code=x&state=${oauthState}`, { token: b.token, github_connect: attempt })
+    check("a return signed in as someone else fails", someoneElse.result === "error", someoneElse.target.href)
+    const signedOutReturn = await returnFrom(`code=x&state=${oauthState}`, { github_connect: attempt })
+    check("a return without a sign-in fails", signedOutReturn.result === "error", signedOutReturn.target.href)
+    const badCode = await returnFrom(`code=not-a-real-code&state=${oauthState}`, { token: a.token, github_connect: attempt })
+    check("a code GitHub doesn't know fails", badCode.result === "error", badCode.target.href)
+    const cancelled = await returnFrom(`error=access_denied&state=${oauthState}`, { token: a.token, github_connect: attempt })
+    check("pressing Cancel on GitHub comes back quietly", cancelled.result === "cancelled", cancelled.target.href)
+    const elsewhere = connectCookie(await go("/api/github/connect?return=%2F%2Fevil.com", { token: a.token }))
+    const elsewhereReturn = await returnFrom("code=x&state=wrong", { token: a.token, github_connect: elsewhere })
+    check(
+      "a return page on another site becomes Settings",
+      elsewhereReturn.target.origin === new URL(BASE).origin && elsewhereReturn.target.pathname === "/settings",
+      elsewhereReturn.target.href,
+    )
+
+    // Disconnecting forgets the account; posts made from GitHub stay.
+    const anonymous = await api("DELETE", "/api/github/connect")
+    check("disconnecting without a token is 401", anonymous.status === 401, `status ${anonymous.status}`)
+    const disconnect = await api("DELETE", "/api/github/connect", { token: a.token })
+    check(
+      "disconnecting forgets the GitHub account",
+      disconnect.status === 200 && disconnect.data?.github === null && disconnect.data?.username === names.a,
+      disconnect.text.slice(0, 160),
+    )
+    const afterDisconnect = await api("GET", `/api/users/${names.a}`)
+    check("and the profile stops showing it", afterDisconnect.data?.github === null, afterDisconnect.text.slice(0, 160))
+    const kept = await api("GET", `/api/posts/${state.githubPostId}`)
+    check("posts made from GitHub stay as they were", kept.data?.files?.[0]?.github?.repo === repo, kept.text.slice(0, 160))
   },
 }
 
