@@ -4,11 +4,12 @@
 // Usage: npm run mobile-check
 // SMOKE_BASE_URL and SMOKE_DB work as in the smoke test. MOBILE_SHOTS names a
 // directory to save a screenshot of each page into.
+import { execFileSync } from "node:child_process"
 import { mkdir, readFile } from "node:fs/promises"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { launchBrowser } from "./lib/browser.mjs"
-import { assertSameDatabase, insertLegacyCodePost, removeTestUsers } from "./lib/test-users.mjs"
+import { GITHUB_FIXTURE, assertSameDatabase, insertGitHubPost, insertLegacyCodePost, removeTestUsers } from "./lib/test-users.mjs"
 
 const BASE = process.env.SMOKE_BASE_URL || "http://localhost:3000"
 const SHOTS = process.env.MOBILE_SHOTS
@@ -17,6 +18,8 @@ const SMALL_PHONE = { width: 320, height: 568 }
 const DESKTOP = { width: 1280, height: 800, mobile: false }
 const GUTTER = 16
 const TAP_TARGET = 44
+// The checks that call GitHub (the picker) need the app's GitHub keys.
+const GITHUB_KEYS = Boolean(process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET)
 const fixture = (name) => fileURLToPath(new URL(`./fixtures/${name}`, import.meta.url))
 const buttonHeight = (text) => `(() => {
   const button = [...document.querySelectorAll("main button")].find((b) => b.textContent.includes(${JSON.stringify(text)}))
@@ -149,6 +152,23 @@ async function seed() {
     ]),
   }
 
+  // A file from GitHub with lines 80–85 marked. With the app's GitHub keys it
+  // is posted the way people post one; without them it is stored straight in
+  // the database, with the same file from git, so the code view's checks run
+  // either way.
+  const githubFile = {
+    name: "code-files.ts",
+    language: "typescript",
+    github: { ...GITHUB_FIXTURE, path: "lib/code-files.ts" },
+    marked: { from: 80, to: 85 },
+  }
+  const githubPostId = GITHUB_KEYS
+    ? (await api("POST", "/api/posts", a.token, { caption: `github file ${run}`, files: [githubFile] }))._id
+    : await insertGitHubPost(names.a, {
+        caption: `github file ${run}`,
+        file: { ...githubFile, code: execFileSync("git", ["show", `${GITHUB_FIXTURE.commit}:lib/code-files.ts`], { encoding: "utf8" }) },
+      })
+
   // Mux videos for the playback checks: a video post, and three DevBits.
   let videoPostId = null
   let devbits = null
@@ -162,7 +182,7 @@ async function seed() {
     videoPostId = video
     devbits = { one, two, three }
   }
-  return { a, b, postId: code._id, videoPostId, devbits, codePosts }
+  return { a, b, postId: code._id, videoPostId, devbits, codePosts, githubPostId }
 }
 
 // Everything below this point runs inside the page.
@@ -304,6 +324,29 @@ const textPlacement = (needle) => `(() => {
   return { found, outside }
 })()`
 
+// A code view showing a GitHub file: its header line, the lines shown and
+// which of them are marked, the hidden-lines rows and Show whole file.
+const githubView = (scope) => `(() => {
+  const view = ${scope}?.querySelector("[data-code-view]")
+  if (!view) return null
+  const source = view.querySelector("[data-github-source]")
+  const numbers = [...view.querySelectorAll("[data-line-numbers] > *")]
+  const showAll = view.querySelector("[data-show-all]")
+  const link = view.querySelector("[data-github-view]")
+  return {
+    label: view.querySelector("[data-github-label]")?.textContent ?? null,
+    sourceFits: source ? source.scrollWidth <= source.clientWidth + 1 : false,
+    link: link?.getAttribute("href") ?? null,
+    linkHeight: link ? link.getBoundingClientRect().height : 0,
+    first: numbers[0]?.textContent ?? null,
+    count: numbers.length,
+    marked: numbers.filter((n) => n.hasAttribute("data-marked")).map((n) => n.textContent).join(","),
+    hidden: view.querySelectorAll("[data-hidden-lines]").length,
+    spoken: view.querySelector("[data-marked-label]")?.textContent ?? null,
+    showAll: showAll ? { text: showAll.textContent.trim(), height: showAll.getBoundingClientRect().height } : null,
+  }
+})()`
+
 const click = (selectorExpression) => `(() => {
   const el = ${selectorExpression}
   if (!el) return false
@@ -433,7 +476,7 @@ async function main() {
 
   let browser = null
   try {
-    const { a, b, postId, videoPostId, devbits, codePosts } = await seed()
+    const { a, b, postId, videoPostId, devbits, codePosts, githubPostId } = await seed()
     const tabs = `Home=/ Explore=/explore Create=/create DevBits=/devbits Profile=/profile/${names.a}`
     browser = await launchBrowser()
     const page = await browser.newPage(PHONE)
@@ -584,6 +627,48 @@ async function main() {
       JSON.stringify(legacy),
     )
 
+    console.log("\n[github posts]")
+    if (!githubPostId) {
+      console.log("  skip github posts (GITHUB_CLIENT_ID or GITHUB_CLIENT_SECRET is not set)")
+    } else {
+      const fixtureLink = `https://github.com/${GITHUB_FIXTURE.owner}/${GITHUB_FIXTURE.repo}/blob/${GITHUB_FIXTURE.commit}/lib/code-files.ts#L80-L85`
+      const fixtureLabel = `${GITHUB_FIXTURE.owner}/${GITHUB_FIXTURE.repo} · lib/code-files.ts`
+      await open(page, "/")
+      const feedView = await page.evaluate(githubView(card(githubPostId)))
+      check("feed, GitHub file: a second header line names the repository and path", feedView?.label === fixtureLabel, JSON.stringify(feedView))
+      check("feed, GitHub file: View on GitHub opens the file at its commit, at the marked lines", feedView?.link === fixtureLink, feedView?.link)
+      check(`feed, GitHub file: View on GitHub is at least ${TAP_TARGET}px tall`, feedView?.linkHeight >= TAP_TARGET, `${feedView?.linkHeight}px`)
+      check("feed, GitHub file: the header line fits the card", feedView?.sourceFits === true)
+      check(
+        "feed, GitHub file: opens on lines 77 to 88, the marked 80–85 and 3 either side",
+        feedView?.first === "77" && feedView?.count === 12,
+        `starts at ${feedView?.first}, ${feedView?.count} lines`,
+      )
+      check("feed, GitHub file: lines 80 to 85 are marked", feedView?.marked === "80,81,82,83,84,85", feedView?.marked)
+      check("feed, GitHub file: rows show where lines are hidden, above and below", feedView?.hidden === 2, `${feedView?.hidden} rows`)
+      check("feed, GitHub file: screen readers hear which lines are marked", feedView?.spoken === "Marked lines 80 to 85", feedView?.spoken)
+      check(
+        `feed, GitHub file: Show whole file says how long the file is and is at least ${TAP_TARGET}px tall`,
+        feedView?.showAll?.text === "Show whole file (126 lines)" && feedView.showAll.height >= TAP_TARGET,
+        JSON.stringify(feedView?.showAll),
+      )
+      await page.evaluate(click(`${card(githubPostId)}?.querySelector("[data-show-all]")`))
+      check(
+        "feed, GitHub file: Show whole file shows all 126 lines, still marked",
+        await page.waitFor(
+          `(() => { const v = ${githubView(card(githubPostId))}; return v && v.first === "1" && v.count === 126 && v.marked === "80,81,82,83,84,85" && v.hidden === 0 && !v.showAll })()`,
+          { timeout: 5000 },
+        ),
+      )
+      await open(page, `/p/${githubPostId}`)
+      await shellChecks(page, "GitHub post", { back: true, tabs })
+      const postView = await page.evaluate(githubView(`document.querySelector("main")`))
+      check(
+        "GitHub post page: opens on the marked lines too",
+        postView?.first === "77" && postView?.count === 12 && postView?.showAll?.text === "Show whole file (126 lines)",
+        JSON.stringify(postView),
+      )
+    }
     console.log("\n[running code]")
     const runButton = `document.querySelector("main [data-code-view] [data-run]")`
     const output = `(document.querySelector("main [data-run-output]")?.textContent ?? "")`
@@ -1241,6 +1326,13 @@ async function main() {
     await open(page, `/p/${postId}`)
     const smallWide = await page.evaluate(SHELL)
     check("small phone, a 300-character line: fits the width of the screen", fitsScreen(smallWide, SMALL_PHONE), widthDetail(smallWide, SMALL_PHONE))
+    if (githubPostId) {
+      await open(page, `/p/${githubPostId}`)
+      const smallGitHub = await page.evaluate(SHELL)
+      check("small phone, GitHub post: fits the width of the screen", fitsScreen(smallGitHub, SMALL_PHONE), widthDetail(smallGitHub, SMALL_PHONE))
+      const smallView = await page.evaluate(githubView(`document.querySelector("main")`))
+      check("small phone, GitHub post: the header line shortens instead of widening the page", smallView?.sourceFits === true, JSON.stringify(smallView))
+    }
     await open(page, "/notifications")
     await shot(page, "small-notifications")
     await tabRowChecks(page, "small phone, notifications", 5)

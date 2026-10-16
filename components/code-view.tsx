@@ -1,12 +1,14 @@
 "use client"
 
 import { useCallback, useState } from "react"
-import { Copy, Play, Square } from "lucide-react"
+import { Copy, ExternalLink, Play, Square } from "lucide-react"
 import toast from "react-hot-toast"
 import { CodeRun } from "@/components/code-run"
+import { GitHubMark } from "@/components/github-mark"
 import { HighlightedCode } from "@/components/highlighted-code"
-import { FEED_LINES, displayLines, languageLabel, type CodeFile } from "@/lib/code-files"
+import { FEED_LINES, displayLines, languageLabel, markedLabel, markedWindow, type CodeFile } from "@/lib/code-files"
 import { runKind } from "@/lib/code-run"
+import { githubFileUrl } from "@/lib/github-links"
 import { cn } from "@/lib/utils"
 
 export const COPY_FAILED = "Couldn't copy — select the code instead"
@@ -17,15 +19,44 @@ const headerButton =
 
 interface CodeViewProps {
   files: CodeFile[]
-  // In the feed, a file longer than 20 lines folds behind "Show all".
+  // In the feed, what's shown of a file folds at 20 lines.
   fold?: boolean
+}
+
+// Where a GitHub file came from, and a link to it there, at its commit.
+function GitHubSource({ file }: { file: CodeFile }) {
+  if (!file.github) return null
+  const label = `${file.github.owner}/${file.github.repo} · ${file.github.path}`
+  return (
+    <div data-github-source className="flex items-center gap-2 border-b border-zinc-800 pl-3 pr-1 text-sm text-zinc-400">
+      <GitHubMark className="h-4 w-4 shrink-0" />
+      <span data-github-label title={label} className="min-w-0 flex-1 truncate">
+        {label}
+      </span>
+      <a href={githubFileUrl(file.github, file.marked)} target="_blank" rel="noopener noreferrer" data-github-view className={headerButton}>
+        View on GitHub
+        <ExternalLink aria-hidden="true" className="h-3.5 w-3.5" />
+      </a>
+    </div>
+  )
+}
+
+// A row standing for lines the view leaves out.
+function HiddenLines() {
+  return (
+    <div aria-hidden="true" data-hidden-lines className="select-none bg-zinc-900 px-3 text-xs leading-5 text-zinc-500">
+      ⋯
+    </div>
+  )
 }
 
 // A code post's files, the same in the feed and on the post page: a tab per
 // file (or the one file's name or language), Copy, Run where the files can
-// run, line numbers and colours.
+// run, line numbers and colours. A GitHub file adds where it came from, and
+// one with marked lines opens on them.
 export function CodeView({ files, fold = false }: CodeViewProps) {
   const [active, setActive] = useState(0)
+  // Show all (or Show whole file) was pressed: every line shows.
   const [expanded, setExpanded] = useState(false)
   const [copied, setCopied] = useState(false)
   // Each Run starts a new frame; `running` turns off when a JavaScript run ends.
@@ -38,7 +69,14 @@ export function CodeView({ files, fold = false }: CodeViewProps) {
   )
   const current = Math.min(active, files.length - 1)
   const file = files[current]
-  const folded = fold && !expanded && displayLines(file.code).length > FEED_LINES
+  const lineCount = displayLines(file.code).length
+  const marked = file.marked ?? null
+  // A marked file opens on its marks with lines either side; others start at
+  // the top. In the feed, what's shown folds at 20 lines.
+  const range = marked && !expanded ? markedWindow(lineCount, marked) : { first: 1, last: lineCount }
+  const first = range.first
+  const last = fold && !expanded ? Math.min(range.last, first + FEED_LINES - 1) : range.last
+  const cut = first > 1 || last < lineCount
 
   const copy = async () => {
     try {
@@ -105,15 +143,23 @@ export function CodeView({ files, fold = false }: CodeViewProps) {
           </button>
         )}
       </div>
-      <HighlightedCode code={file.code} language={file.language} maxLines={folded ? FEED_LINES : undefined} />
-      {folded && (
+      <GitHubSource file={file} />
+      {marked && (
+        <p data-marked-label className="sr-only">
+          {markedLabel(marked)}
+        </p>
+      )}
+      {marked && first > 1 && <HiddenLines />}
+      <HighlightedCode code={file.code} language={file.language} first={first} last={last} marked={marked} />
+      {marked && last < lineCount && <HiddenLines />}
+      {cut && (
         <button
           type="button"
           data-show-all
           onClick={() => setExpanded(true)}
           className="min-h-11 w-full border-t border-zinc-800 text-sm text-sky-400 hover:bg-zinc-900 md:min-h-9"
         >
-          Show all
+          {marked ? `Show whole file (${lineCount} lines)` : "Show all"}
         </button>
       )}
       {run && <CodeRun key={run.id} files={files} onFinish={() => finished(run.id)} />}

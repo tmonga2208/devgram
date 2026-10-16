@@ -29,7 +29,7 @@ import "prismjs/components/prism-yaml.js"
 import "prismjs/components/prism-markdown.js"
 import "prismjs/components/prism-docker.js"
 import "prismjs/components/prism-graphql.js"
-import { languageById } from "@/lib/code-files"
+import { displayLines, languageById } from "@/lib/code-files"
 
 // A piece of highlighted code: plain text, or a token with Prism's class
 // names around its own pieces.
@@ -48,4 +48,28 @@ export function highlight(code: string, language: string): Highlighted[] {
   const name = languageById(language)?.prism
   const grammar = name ? Prism.languages[name] : undefined
   return grammar ? pieces(Prism.tokenize(code, grammar)) : [code]
+}
+
+// Splits highlighted pieces at line breaks. A token that spans lines becomes
+// one token per line, with the same classes.
+function splitLines(pieces: Highlighted[]): Highlighted[][] {
+  const lines: Highlighted[][] = [[]]
+  for (const piece of pieces) {
+    const parts: Highlighted[][] =
+      typeof piece === "string"
+        ? piece.split("\n").map((part) => (part ? [part] : []))
+        : splitLines(piece.content).map((content) => (content.length > 0 ? [{ classes: piece.classes, content }] : []))
+    parts.forEach((part, index) => {
+      if (index > 0) lines.push([])
+      lines[lines.length - 1].push(...part)
+    })
+  }
+  return lines
+}
+
+// The code's highlighted pieces, line by line, as displayLines counts lines.
+// Colours are worked out on the whole file first, so a line inside a long
+// comment or string keeps the colour it has there.
+export function highlightLines(code: string, language: string): Highlighted[][] {
+  return splitLines(highlight(displayLines(code).join("\n"), language))
 }

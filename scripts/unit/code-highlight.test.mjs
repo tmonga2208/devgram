@@ -3,7 +3,7 @@ import assert from "node:assert/strict"
 import "./app-alias.mjs"
 
 const { LANGUAGES } = await import("../../lib/code-files.ts")
-const { highlight } = await import("../../lib/code-highlight.ts")
+const { highlight, highlightLines } = await import("../../lib/code-highlight.ts")
 
 const text = (pieces) => pieces.map((piece) => (typeof piece === "string" ? piece : text(piece.content))).join("")
 const classes = (pieces) => pieces.flatMap((piece) => (typeof piece === "string" ? [] : [piece.classes, ...classes(piece.content)]))
@@ -60,4 +60,17 @@ test("leaves a language it doesn't know as plain text", () => {
 
 test("leaves Plain text plain", () => {
   assert.deepEqual(highlight("const a = 1 // not code here", "text"), ["const a = 1 // not code here"])
+})
+
+test("splits highlighted code into lines, keeping colours across them", () => {
+  const lines = highlightLines("/* one\ntwo */\nconst x = `a\nb`\n", "javascript")
+  assert.deepEqual(lines.map(text), ["/* one", "two */", "const x = `a", "b`"])
+  assert.ok(classes(lines[1]).some((name) => name.split(" ").includes("comment")), "the comment's second line keeps its colour")
+  assert.ok(classes(lines[3]).some((name) => name.includes("string")), "the string's second line keeps its colour")
+})
+
+test("splits into the lines the code view counts", () => {
+  assert.deepEqual(highlightLines("a\r\nb\r\n", "text").map(text), ["a", "b"])
+  assert.deepEqual(highlightLines("x\n\n", "python").map(text), ["x", ""])
+  assert.deepEqual(highlightLines("", "javascript").map(text), [""])
 })

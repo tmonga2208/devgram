@@ -65,6 +65,29 @@ export async function insertLegacyCodePost(username, { caption, code, language }
   })
 }
 
+// A post holding one file from GitHub, stored straight in the database the
+// way POST /api/posts stores one, for checks that run without the app's
+// GitHub keys. Returns its id. Cleanup removes it with that user's posts.
+export async function insertGitHubPost(username, { caption, file }) {
+  return withDatabase(async (db) => {
+    const now = new Date()
+    const { insertedId } = await db.collection("posts").insertOne({
+      author: { username, avatar: "/placeholder.svg" },
+      caption,
+      files: [file],
+      language: file.language,
+      kind: "post",
+      likes: 0,
+      comments: [],
+      likedBy: [],
+      savedBy: [],
+      createdAt: now,
+      updatedAt: now,
+    })
+    return String(insertedId)
+  })
+}
+
 // The test users' uploaded photos live in their own folders (lib/media-rules.ts).
 async function removeTestFiles(userIds) {
   if (!process.env.BLOB_READ_WRITE_TOKEN || userIds.length === 0) return 0
