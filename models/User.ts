@@ -9,6 +9,10 @@ export interface IUser extends mongoose.Document {
   avatar?: string;
   bio?: string;
   website?: string;
+  // The GitHub account connected to this one (app/api/github): GitHub's
+  // account number, which never changes, and the username when connected.
+  // No token is kept.
+  github?: { id: number; login: string };
   followers: number;
   following: mongoose.Types.ObjectId[];
   followingCount: number;
@@ -74,6 +78,16 @@ const userSchema = new mongoose.Schema<IUser>(
     website: {
       type: String,
       default: '',
+    },
+    github: {
+      type: new mongoose.Schema(
+        {
+          id: { type: Number, required: true },
+          login: { type: String, required: true },
+        },
+        { _id: false },
+      ),
+      required: false,
     },
     followers: {
       type: Number,
@@ -183,5 +197,8 @@ userSchema.index({ username: 1 });
 userSchema.index({ email: 1 });
 userSchema.index({ fullName: 1 });
 userSchema.index({ followers: 1, followingCount: 1 });
+// One GitHub account per Devgram account, even when two connects race.
+// Sparse, so accounts without GitHub don't collide.
+userSchema.index({ 'github.id': 1 }, { unique: true, sparse: true });
 
 export default (mongoose.models.User as mongoose.Model<IUser>) || mongoose.model<IUser>('User', userSchema); 

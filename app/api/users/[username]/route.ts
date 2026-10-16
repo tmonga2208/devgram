@@ -12,7 +12,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ username
     await connectToDatabase();
 
     const user = await User.findOne({ username })
-      .select('username fullName avatar bio website followers following isVerified')
+      .select('username fullName avatar bio website github followers following isVerified')
       .lean();
     if (!user) return jsonError('User not found', 404);
 
@@ -23,6 +23,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ username
       avatar?: string;
       bio?: string;
       website?: string;
+      github?: { login?: string };
       followers?: number;
       following?: unknown[];
       isVerified?: boolean;
@@ -40,6 +41,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ username
       avatar: profile.avatar || '/placeholder.svg',
       bio: profile.bio || '',
       website: profile.website || '',
+      github: profile.github?.login ? { login: profile.github.login } : null,
       followers: profile.followers || 0,
       following: profile.following ? profile.following.length : 0,
       isVerified: Boolean(profile.isVerified),

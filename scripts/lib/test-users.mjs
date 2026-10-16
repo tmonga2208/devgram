@@ -137,3 +137,28 @@ export async function removeTestUsers(baseUrl, usernames) {
     leftovers,
   }
 }
+
+// A public repository, and a commit on its default branch, that the GitHub
+// checks read from GitHub. The files there never change.
+export const GITHUB_FIXTURE = { owner: "tmonga2208", repo: "devgram", commit: "ecfbc5c00e21e249fe201ddb81698fc80e5c79dc" }
+
+// Connects a test account to a GitHub account straight in the database, as
+// the callback saves it: GitHub's sign-in page can't be automated. Throws
+// Mongo's duplicate-key error (code 11000) when another account has that id.
+export async function setGitHubAccount(username, github) {
+  await withDatabase((db) => db.collection("users").updateOne({ username }, { $set: { github } }))
+}
+
+// Whether the users collection has the unique index on github.id that
+// models/User.ts declares. Mongoose builds it when the app starts, so this
+// waits up to 10 seconds for it.
+export async function hasUniqueGitHubIndex() {
+  return withDatabase(async (db) => {
+    for (let attempt = 0; attempt < 20; attempt++) {
+      const indexes = await db.collection("users").indexes()
+      if (indexes.some((index) => index.key?.["github.id"] === 1 && index.unique && index.sparse)) return true
+      await new Promise((resolve) => setTimeout(resolve, 500))
+    }
+    return false
+  })
+}

@@ -7,7 +7,14 @@ import { readFile } from "node:fs/promises"
 import { BlobNotFoundError, head, list } from "@vercel/blob"
 import { put } from "@vercel/blob/client"
 import Mux, { NotFoundError } from "@mux/mux-node"
-import { assertSameDatabase, insertLegacyCodePost, removeTestUsers } from "./lib/test-users.mjs"
+import {
+  GITHUB_FIXTURE,
+  assertSameDatabase,
+  hasUniqueGitHubIndex,
+  insertLegacyCodePost,
+  removeTestUsers,
+  setGitHubAccount,
+} from "./lib/test-users.mjs"
 
 const BASE = process.env.SMOKE_BASE_URL || "http://localhost:3000"
 const run = Math.random().toString(36).slice(2, 8)
@@ -913,6 +920,126 @@ const sections = {
       devbit.status === 400 && devbit.data?.error === "A DevBit is a video and a caption only",
       devbit.text.slice(0, 120),
     )
+  },
+  async github() {
+    if (!process.env.GITHUB_CLIENT_ID || !process.env.GITHUB_CLIENT_SECRET) {
+      console.log("  skip github (GITHUB_CLIENT_ID or GITHUB_CLIENT_SECRET is not set)")
+      return
+    }
+    await ensureUsers()
+    const { a, b } = state
+    const { owner, repo, commit } = GITHUB_FIXTURE
+    const query = (values) => new URLSearchParams(values).toString()
+    const isCommit = (value) => /^[0-9a-f]{40}$/.test(value ?? "")
+
+    // Browsing needs a Devgram sign-in, so nobody else spends the site's GitHub requests.
+    for (const path of [
+      "/api/github/repos",
+      `/api/github/resolve?${query({ url: `https://github.com/${owner}/${repo}` })}`,
+      `/api/github/tree?${query({ owner, repo, commit })}`,
+      `/api/github/file?${query({ owner, repo, commit, path: "lib/regex.ts" })}`,
+    ]) {
+      const res = await api("GET", path)
+      check(`GET ${path.split("?")[0]} without a token is 401`, res.status === 401, `status ${res.status}`)
+    }
+
+    const resolve = (url) => api("GET", `/api/github/resolve?${query({ url })}`, { token: a.token })
+    const front = await resolve(`https://github.com/${owner}/${repo}`)
+    check(
+      "a repository link resolves to its default branch's latest commit",
+      front.status === 200 && front.data?.kind === "repo" && front.data?.owner === owner && front.data?.repo === repo && isCommit(front.data?.commit),
+      front.text.slice(0, 200),
+    )
+    const marked = await resolve(`https://github.com/${owner}/${repo}/blob/${commit}/lib/code-files.ts#L80-L85`)
+    check(
+      "a file link at a commit keeps the commit, the path and the marked lines",
+      marked.data?.kind === "file" && marked.data?.commit === commit && marked.data?.path === "lib/code-files.ts" &&
+        marked.data?.marked?.from === 80 && marked.data?.marked?.to === 85,
+      marked.text.slice(0, 200),
+    )
+    const onBranch = await resolve(`https://github.com/${owner}/${repo}/blob/master/lib/regex.ts`)
+    check(
+      "a file link on a branch resolves to a full commit",
+      onBranch.data?.kind === "file" && isCommit(onBranch.data?.commit) && onBranch.data?.path === "lib/regex.ts",
+      onBranch.text.slice(0, 200),
+    )
+    const folder = await resolve(`https://github.com/${owner}/${repo}/tree/${commit}/lib`)
+    check("a folder link resolves to the folder", folder.data?.kind === "folder" && folder.data?.path === "lib", folder.text.slice(0, 200))
+    for (const [what, url, status, message] of [
+      ["something that isn't a link", "hello", 400, "That isn't a GitHub link"],
+      ["a missing repository", `https://github.com/${owner}/no-such-repo-${run}`, 404, "That repository doesn't exist or is private"],
+      ["a file link on a missing branch", `https://github.com/${owner}/${repo}/blob/no-such-branch-${run}/lib/regex.ts`, 404, "That file isn't in this repository"],
+    ]) {
+      const res = await resolve(url)
+      check(`${what}: ${status} "${message}"`, res.status === status && res.data?.error === message, `status ${res.status} ${res.text.slice(0, 120)}`)
+    }
+
+    const tree = await api("GET", `/api/github/tree?${query({ owner, repo, commit })}`, { token: a.token })
+    const entries = tree.data?.entries ?? []
+    check(
+      "the tree lists folders and files at the commit, with sizes",
+      tree.status === 200 && entries.some((e) => e.path === "lib" && e.type === "folder") &&
+        entries.some((e) => e.path === "lib/code-files.ts" && e.type === "file" && e.size === 6768),
+      tree.text.slice(0, 200),
+    )
+    const branchTree = await api("GET", `/api/github/tree?${query({ owner, repo, commit: "master" })}`, { token: a.token })
+    check("the tree wants a full commit", branchTree.status === 400, `status ${branchTree.status}`)
+
+    const getFile = (path) => api("GET", `/api/github/file?${query({ owner, repo, commit, path })}`, { token: a.token })
+    const codeFiles = await getFile("lib/code-files.ts")
+    check(
+      "a file comes back with its text, name, language and line count",
+      codeFiles.status === 200 && codeFiles.data?.code?.startsWith("// Rules for the files in a code post") &&
+        codeFiles.data?.name === "code-files.ts" && codeFiles.data?.language === "typescript" &&
+        codeFiles.data?.lineCount === 126 && codeFiles.data?.github?.commit === commit,
+      codeFiles.text.slice(0, 200),
+    )
+    state.githubCode = codeFiles.data?.code
+    for (const [what, path, status, message] of [
+      ["a path that isn't there", "lib/nope.ts", 404, "That file isn't in this repository"],
+      ["a folder", "lib", 404, "That file isn't in this repository"],
+      ["a picture", "public/icons/icon-192.png", 400, "This file isn't text, so it can't be shared"],
+      ["a file over 100,000 characters", "package-lock.json", 400, "This file is over 100,000 characters"],
+      ["a path that climbs out of the repository", "../package.json", 400, "Files from GitHub need an owner, a repository, a full commit and a path"],
+    ]) {
+      const res = await getFile(path)
+      check(`a file request for ${what}: ${status} "${message}"`, res.status === status && res.data?.error === message, `status ${res.status} ${res.text.slice(0, 120)}`)
+    }
+
+    // The connection itself needs GitHub's sign-in page, so these checks set
+    // it straight in the database, the way the callback saves it.
+    const notConnected = await api("GET", "/api/github/repos", { token: a.token })
+    check(
+      `repositories before connecting: 409 "Connect GitHub first"`,
+      notConnected.status === 409 && notConnected.data?.error === "Connect GitHub first",
+      notConnected.text.slice(0, 120),
+    )
+    const before = await api("GET", `/api/users/${names.a}`)
+    check("a profile without GitHub has github: null", before.status === 200 && before.data?.github === null, before.text.slice(0, 160))
+    const githubId = 2_000_000_000 + Math.floor(Math.random() * 1_000_000)
+    await setGitHubAccount(names.a, { id: githubId, login: owner })
+    const repos = await api("GET", "/api/github/repos", { token: a.token })
+    check(
+      "a connected account lists its public repositories",
+      repos.status === 200 && Array.isArray(repos.data) && repos.data.some((r) => r.owner === owner && r.name === repo && typeof r.defaultBranch === "string"),
+      repos.text.slice(0, 200),
+    )
+    const profile = await api("GET", `/api/users/${names.a}`)
+    check(
+      "the public profile shows the GitHub username, and only that",
+      profile.data?.github?.login === owner && Object.keys(profile.data.github).join() === "login",
+      profile.text.slice(0, 160),
+    )
+    const me = await api("GET", "/api/users/profile", { token: a.token })
+    check("your own account shows it too", me.data?.github?.login === owner, me.text.slice(0, 160))
+    check("the users collection has a unique index on github.id", await hasUniqueGitHubIndex())
+    let duplicate = null
+    try {
+      await setGitHubAccount(names.b, { id: githubId, login: owner })
+    } catch (error) {
+      duplicate = error
+    }
+    check("so a second account can't take the same GitHub account", duplicate?.code === 11000, duplicate ? duplicate.message : "the second account took it")
   },
 }
 

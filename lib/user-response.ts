@@ -40,6 +40,7 @@ export function toPrivateUser(user: IUser) {
     avatar: user.avatar || "/placeholder.svg",
     bio: user.bio || "",
     website: user.website || "",
+    github: user.github?.login ? { login: user.github.login } : null,
     notificationSettings: pick(NOTIFICATION_DEFAULTS, user.notificationSettings),
     privacySettings: pick(PRIVACY_DEFAULTS, user.privacySettings),
   }
