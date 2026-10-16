@@ -237,6 +237,15 @@ test("says GitHub isn't set up without the app's ID and secret", async () => {
   assert.equal(github.isGitHubSetUp(), true)
 })
 
+test("says GitHub isn't set up when GitHub refuses the app's ID and secret", async (t) => {
+  const logged = t.mock.method(console, "error", () => {})
+  answer({ "GET /repos/o/r": { status: 401, body: { message: "Bad credentials" } } })
+  await fails(github.resolveLink(repoLink), messages.NOT_SET_UP, 503)
+  answer({ "GET /users/someone/repos?type=owner&sort=pushed&per_page=100": { status: 401, body: { message: "Bad credentials" } } })
+  await fails(github.listRepos("someone"), messages.NOT_SET_UP, 503)
+  assert.equal(logged.mock.calls[0]?.arguments[0], "GitHub refused the app's client ID and secret")
+})
+
 test("connecting: GitHub's sign-in page asks for no scopes", () => {
   const url = new URL(github.authorizeUrl({ state: "the-state", challenge: "the-challenge", redirectUri: "http://localhost:3210/api/github/callback" }))
   assert.equal(`${url.origin}${url.pathname}`, `${BASE}/login/oauth/authorize`)

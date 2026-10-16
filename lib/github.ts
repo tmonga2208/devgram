@@ -96,6 +96,12 @@ async function call(path: string, { method = "GET", accept = "application/vnd.gi
     response.status === 429 ||
     (response.status === 403 && (response.headers.get("x-ratelimit-remaining") === "0" || response.headers.has("retry-after")))
   if (limited) throw new HttpError(BUSY, 503)
+  // GitHub refused the app's own ID and secret: the server's setup is wrong,
+  // not the thing asked for.
+  if (response.status === 401 && !token) {
+    console.error("GitHub refused the app's client ID and secret")
+    throw new HttpError(NOT_SET_UP, 503)
+  }
   if (response.status >= 500) throw new HttpError(UNREACHABLE, 502)
   return response
 }
