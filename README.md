@@ -7,10 +7,11 @@ Live at **https://devgram-nine.vercel.app**.
 ## Features
 
 - Feed of photo, video and code posts; photos and videos upload from your device (or paste a link)
-- Code posts with up to 5 files in 26 languages: line numbers, Copy, and Run for HTML and JavaScript in a locked-down sandbox; written in Monaco (VS Code's editor) on computers
+- Code posts with up to 5 files in 27 languages: line numbers, Copy, and Run for HTML and JavaScript in a locked-down sandbox; written in Monaco (VS Code's editor) on computers
+- Files from GitHub in code posts: connect your GitHub account to pick from your public repositories, or paste a link to any public file; mark the lines that matter, and the post opens on them, linked to the exact commit
 - DevBits: short vertical videos (up to 90 seconds) in a full-screen swipe feed, on their own tab and on profiles
 - Like, comment and save posts; saves are private to each user
-- User profiles with avatar, bio and website
+- User profiles with avatar, bio, website and a connected GitHub account
 - Follow and unfollow
 - Direct messages
 - Notifications for likes, comments, follows, messages and @mentions
@@ -29,6 +30,7 @@ Live at **https://devgram-nine.vercel.app**.
 - JWT authentication with `jose`; passwords hashed with `bcryptjs`
 - Vercel Blob for photos, Mux for videos
 - Prism for code highlighting; Monaco (`@monaco-editor/react`) for writing code on computers
+- GitHub's REST API through an OAuth app; Devgram keeps no GitHub tokens
 
 ## Getting started
 
@@ -47,6 +49,8 @@ BLOB_READ_WRITE_TOKEN=from_vercel_blob
 MUX_TOKEN_ID=from_mux
 MUX_TOKEN_SECRET=from_mux
 MUX_TEST_UPLOADS=1
+GITHUB_CLIENT_ID=from_your_github_oauth_app
+GITHUB_CLIENT_SECRET=from_your_github_oauth_app
 ```
 
 `JWT_SECRET` signs login tokens. Generate one with `openssl rand -hex 32`. `MUX_TEST_UPLOADS=1` is for local work only: Mux then makes free test videos (watermarked, cut to 10 seconds, deleted after a day).
@@ -69,7 +73,7 @@ Open http://localhost:3000 and register an account.
 | `npm run build` | production build |
 | `npm run lint` | ESLint |
 | `npm run typecheck` | TypeScript, no emit |
-| `npm run test:unit` | unit tests for the upload rules, code posts (file rules, highlighting, Run) and photo and video deletes |
+| `npm run test:unit` | unit tests for the upload rules, code posts (file rules, highlighting, Run), GitHub (links, the client, the connect cookie, a kept post) and photo and video deletes |
 | `npm run smoke` | end-to-end API test against the running dev server |
 | `npm run mobile-check` | layout check of every page at phone width, in headless Chrome |
 
@@ -85,6 +89,8 @@ SMOKE_BASE_URL=https://devgram-nine.vercel.app SMOKE_DB=<production database> np
 Both refuse to start when the target's newest post is missing from the database cleanup would use.
 
 The smoke test's photos, videos and devbits sections, and the phone check's upload and playback checks, upload real files and remove them through the Blob and Mux keys in `.env.local`. They skip themselves when those keys are missing; run them only against a server that uses the same Blob store and Mux account.
+
+The smoke test's `github` section and the phone check's picker checks read the public repository `tmonga2208/devgram` at a fixed commit through the app's GitHub keys in `.env.local`, and skip themselves when those keys are missing. Without the keys, the phone check stores its GitHub post straight in the database, so its code view checks still run.
 
 ## Installable app (PWA)
 
@@ -109,10 +115,25 @@ Limits: photos up to 10 MB (JPEG, PNG, WebP, GIF), shrunk in the browser to 2048
 
 ## Code posts
 
-A code post holds up to 5 files (`files: [{ name, language, code }]`), each up to 20,000 characters, in one of the 26 languages listed in `lib/code-files.ts`. A post's `language` is its first file's, which similar posts match on. Posts made before files keep `code` and `language` and show as one file, and `POST /api/posts` still accepts that form.
+A code post holds up to 5 files (`files: [{ name, language, code }]`), each up to 20,000 characters, in one of the 27 languages listed in `lib/code-files.ts` (the 27th, Plain text, has no colours). A post's `language` is its first file's, which similar posts match on. Posts made before files keep `code` and `language` and show as one file, and `POST /api/posts` still accepts that form.
 
 - **Writing:** computers (a mouse or trackpad, and a screen at least 768px wide) get Monaco, loaded from jsDelivr (`monaco-editor@0.55.1`). Phones get a plain box with a highlighted preview, and so does a computer where Monaco doesn't load within 10 seconds.
 - **Run:** a post with an HTML file shows a live preview, with the post's CSS and JavaScript added. A JavaScript-only post shows its console output. The code runs in an iframe with `sandbox="allow-scripts"` and nothing else, so it can't reach Devgram's storage, cookies or sign-in. A JavaScript-only run happens in a worker inside that frame, which is removed after 5 seconds, so an endless loop can't freeze the page. A run that sends the page more than 30 messages a second (code calling `postMessage` itself) is stopped as well. Two gaps remain: a preview whose own script never stops can freeze a browser that runs sandboxed frames in the page's own process, and a single huge message still has to be read once.
+
+## GitHub
+
+People connect a GitHub account in Settings → Account; it then shows on their profile and fills "Your repositories" in Create's From GitHub picker. Anyone can also paste a link to a public repository, folder or file, with `#L83-L85` to mark lines.
+
+- **Connecting** asks GitHub for no permissions. Devgram reads the account's number and username once, then deletes its authorization on GitHub, so it holds no token. People stay connected until they press Disconnect; GitHub shows its approval page again only when they connect again.
+- **Reading GitHub:** repositories, folders and files are read on the server with the OAuth app's client ID and secret, which GitHub allows 5,000 requests an hour for the whole site. Only public repositories can be read.
+- **Posting:** a file from GitHub is stored with its repository, full commit and path, and the server fetches its code from GitHub at that commit, so the post shows exactly what GitHub has and doesn't change when the repository does. Files from GitHub can be up to 100,000 characters, and a post's files up to 100,000 together.
+
+Setup for a new deployment:
+
+1. GitHub → Settings → Developer settings → OAuth apps → New OAuth App. Homepage: your site. Callback URLs: `https://<your site>/api/github/callback`, plus `http://localhost:3000/api/github/callback` and any other local port you use. Then generate a client secret.
+2. Add `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` to the Vercel project for Production, Preview and Development, and to `.env.local`.
+
+Preview deployments can't connect, since their addresses aren't registered callbacks, but they can browse GitHub and post files from it.
 
 ## Folder structure
 
@@ -152,6 +173,14 @@ POST   /api/uploads/image         🔒 Token to upload one photo to Blob
 POST   /api/uploads/video         🔒 One-time Mux address to upload a video to
 GET    /api/uploads/video/:id     🔒 How far your video upload has got
 
+GET    /api/github/connect           Start connecting GitHub (a link; ?return= a page)
+DELETE /api/github/connect        🔒 Disconnect GitHub
+GET    /api/github/callback          Where GitHub sends people back
+GET    /api/github/repos          🔒 Your public repositories
+GET    /api/github/resolve?url=   🔒 A GitHub link as owner, repository, commit and path
+GET    /api/github/tree           🔒 A repository's folders and files at a commit
+GET    /api/github/file           🔒 One file's text at a commit
+
 GET    /api/users/:username          Public profile
 POST   /api/users/:username/follow 🔒 Toggle follow
 GET    /api/users/profile         🔒 Your account and settings
@@ -171,7 +200,7 @@ GET    /api/health                   Database connectivity check
 ## Not yet built
 
 - Tags and tag-based explore
-- Skills and GitHub link on profiles
+- Skills on profiles
 - Admin dashboard for moderation and analytics
 - Enforcing privacy and notification preferences (they are saved, not applied)
 - Push notifications and posting while offline
