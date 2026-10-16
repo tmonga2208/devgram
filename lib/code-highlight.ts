@@ -67,9 +67,11 @@ function splitLines(pieces: Highlighted[]): Highlighted[][] {
   return lines
 }
 
-// The code's highlighted pieces, line by line, as displayLines counts lines.
-// Colours are worked out on the whole file first, so a line inside a long
-// comment or string keeps the colour it has there.
-export function highlightLines(code: string, language: string): Highlighted[][] {
-  return splitLines(highlight(displayLines(code).join("\n"), language))
+// The code's highlighted pieces, line by line as displayLines counts lines, up
+// to line `last` (every line by default). Colours are worked out from the top
+// of the file, so a line inside a long comment or string keeps the colour it
+// has there; lines after `last` aren't worked out at all.
+export function highlightLines(code: string, language: string, last?: number): Highlighted[][] {
+  const lines = displayLines(code)
+  return splitLines(highlight((last === undefined ? lines : lines.slice(0, last)).join("\n"), language))
 }

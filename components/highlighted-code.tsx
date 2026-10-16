@@ -36,8 +36,9 @@ interface HighlightedCodeProps {
 // sideways inside the block while the numbers stay put. Each line spans the
 // block's whole width, so a marked line's tint does too.
 export function HighlightedCode({ code, language, first = 1, last, marked, onLineClick }: HighlightedCodeProps) {
-  const lines = useMemo(() => highlightLines(code, language), [code, language])
-  const shown = lines.slice(first - 1, Math.min(last ?? lines.length, lines.length))
+  // Only the lines up to the last one shown are worked out: the feed shows 20.
+  const lines = useMemo(() => highlightLines(code, language, last), [code, language, last])
+  const shown = lines.slice(first - 1)
   const isMarked = (line: number) => Boolean(marked && line >= marked.from && line <= marked.to)
   return (
     <div className="flex bg-zinc-950 font-mono text-[13px] leading-5 text-zinc-200">

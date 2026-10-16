@@ -4,6 +4,7 @@ import "./app-alias.mjs"
 
 const { LANGUAGES } = await import("../../lib/code-files.ts")
 const { highlight, highlightLines } = await import("../../lib/code-highlight.ts")
+const Prism = (await import("prismjs")).default
 
 const text = (pieces) => pieces.map((piece) => (typeof piece === "string" ? piece : text(piece.content))).join("")
 const classes = (pieces) => pieces.flatMap((piece) => (typeof piece === "string" ? [] : [piece.classes, ...classes(piece.content)]))
@@ -73,4 +74,15 @@ test("splits into the lines the code view counts", () => {
   assert.deepEqual(highlightLines("a\r\nb\r\n", "text").map(text), ["a", "b"])
   assert.deepEqual(highlightLines("x\n\n", "python").map(text), ["x", ""])
   assert.deepEqual(highlightLines("", "javascript").map(text), [""])
+})
+
+test("works colours out only as far as the last line asked for, the same as for the whole file", (t) => {
+  const code = Array.from({ length: 1000 }, (_, i) => `const line${i} = ${i} /* a comment */`).join("\n")
+  const whole = highlightLines(code, "javascript")
+  const tokenize = t.mock.method(Prism, "tokenize")
+  const first20 = highlightLines(code, "javascript", 20)
+  assert.equal(first20.length, 20)
+  assert.equal(tokenize.mock.calls[0].arguments[0].split("\n").length, 20, "only the first 20 lines are tokenized")
+  assert.deepEqual(first20, whole.slice(0, 20))
+  assert.equal(highlightLines(code, "javascript", 5000).length, 1000)
 })
