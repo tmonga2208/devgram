@@ -39,7 +39,7 @@ const SAMPLES = {
 }
 
 test("every language is coloured by its own grammar", () => {
-  assert.deepEqual(Object.keys(SAMPLES).sort(), LANGUAGES.map((language) => language.id).sort())
+  assert.deepEqual(Object.keys(SAMPLES).sort(), LANGUAGES.map((language) => language.id).filter((id) => id !== "text").sort())
   for (const [id, code] of Object.entries(SAMPLES)) {
     assert.ok(classes(highlight(code, id)).length > 0, `${id} came out as plain text`)
   }
@@ -56,4 +56,8 @@ test("colours HTML with Prism's markup grammar", () => {
 
 test("leaves a language it doesn't know as plain text", () => {
   assert.deepEqual(highlight("PROGRAM-ID. HELLO.", "cobol"), ["PROGRAM-ID. HELLO."])
+})
+
+test("leaves Plain text plain", () => {
+  assert.deepEqual(highlight("const a = 1 // not code here", "text"), ["const a = 1 // not code here"])
 })

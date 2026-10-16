@@ -2,31 +2,42 @@ import { test } from "node:test"
 import assert from "node:assert/strict"
 import {
   BAD_FILES,
+  BAD_MARKS,
   BAD_NAME,
+  BAD_SOURCE,
   EMPTY_FILE,
   FILE_TOO_LONG,
+  GITHUB_FILE_TOO_LONG,
   LANGUAGES,
+  MARKS_GITHUB_ONLY,
   NAME_NEEDED,
+  POST_TOO_LONG,
   SAME_NAME,
   TOO_MANY_FILES,
   UNKNOWN_LANGUAGE,
   displayLines,
   guessLanguage,
   languageLabel,
+  markFromClick,
+  markedLabel,
+  markedWindow,
   parseFiles,
+  parseGitHubSource,
+  parseMarkInput,
   postFiles,
 } from "../../lib/code-files.ts"
 
 const file = (name, language, code) => ({ name, language, code })
 
-test("has the 26 languages, each with a Prism and a Monaco name", () => {
+test("has the 27 languages, each with a Prism and a Monaco name", () => {
   assert.deepEqual(
     LANGUAGES.map((language) => language.label),
     ["JavaScript", "TypeScript", "JSX", "TSX", "HTML", "CSS", "SCSS", "JSON", "Python", "Java", "C#", "C", "C++", "Go",
-      "Rust", "PHP", "Ruby", "Kotlin", "Swift", "Dart", "SQL", "Bash", "YAML", "Markdown", "Dockerfile", "GraphQL"],
+      "Rust", "PHP", "Ruby", "Kotlin", "Swift", "Dart", "SQL", "Bash", "YAML", "Markdown", "Dockerfile", "GraphQL", "Plain text"],
   )
   for (const language of LANGUAGES) assert.ok(language.prism && language.monaco, language.id)
-  assert.equal(new Set(LANGUAGES.map((language) => language.id)).size, 26)
+  assert.equal(new Set(LANGUAGES.map((language) => language.id)).size, 27)
+  assert.deepEqual(LANGUAGES.at(-1), { id: "text", label: "Plain text", prism: "plain", monaco: "plaintext", extensions: [".txt"] })
 })
 
 test("keeps the ids the old form stored", () => {
@@ -41,10 +52,10 @@ test("guesses the language from the file name", () => {
   const cases = {
     "app.ts": "typescript", "App.TSX": "tsx", "index.html": "html", "main.py": "python", "lib.rs": "rust",
     "Dockerfile": "dockerfile", "Dockerfile.dev": "dockerfile", "schema.gql": "graphql", "run.sh": "bash",
-    "config.yml": "yaml", "README.md": "markdown", "util.h": "c", "  spaced.go  ": "go",
+    "config.yml": "yaml", "notes.txt": "text", "README.md": "markdown", "util.h": "c", "  spaced.go  ": "go",
   }
   for (const [name, id] of Object.entries(cases)) assert.equal(guessLanguage(name), id, name)
-  for (const name of ["", "notes", "notes.txt", "archive.", "Makefile"]) assert.equal(guessLanguage(name), null, name)
+  for (const name of ["", "notes", "archive.", "Makefile"]) assert.equal(guessLanguage(name), null, name)
 })
 
 test("names a language by its label, or as stored when the list doesn't have it", () => {
@@ -102,4 +113,106 @@ test("counts the lines a file shows", () => {
   assert.deepEqual(displayLines("a\rb"), ["a", "b"])
   assert.deepEqual(displayLines("a\n\n"), ["a", ""])
   assert.deepEqual(displayLines(""), [""])
+})
+
+const COMMIT = "0123456789abcdef0123456789abcdef01234567"
+const source = (path = "src/app.ts") => ({ owner: "octo-cat", repo: "hello.world", commit: COMMIT, path })
+const fromGitHub = (name, code, extra = {}) => ({ name, language: "typescript", code, github: source(`src/${name}`), ...extra })
+
+test("accepts a file from GitHub with its source and marked lines", () => {
+  const code = "a\nb\nc\nd\n"
+  assert.deepEqual(parseFiles([fromGitHub("app.ts", code, { marked: { from: 2, to: 4 } })]), {
+    files: [{ name: "app.ts", language: "typescript", code, github: source("src/app.ts"), marked: { from: 2, to: 4 } }],
+  })
+  // Files from GitHub and files written here mix; written files come back without the GitHub fields.
+  const mixed = parseFiles([fromGitHub("app.ts", "x"), file("notes.txt", "text", "plain words")])
+  assert.deepEqual(mixed.files[1], file("notes.txt", "text", "plain words"))
+  // A mark sent as null is no mark.
+  assert.equal("marked" in parseFiles([fromGitHub("app.ts", "x", { marked: null })]).files[0], false)
+})
+
+test("lets a GitHub file have up to 100,000 characters, and a post's files 100,000 together", () => {
+  assert.ok("files" in parseFiles([fromGitHub("big.ts", "x".repeat(100000))]))
+  assert.deepEqual(parseFiles([fromGitHub("big.ts", "x".repeat(100001))]), { error: GITHUB_FILE_TOO_LONG })
+  assert.deepEqual(parseFiles([file("a.js", "javascript", "x".repeat(20001))]), { error: FILE_TOO_LONG })
+  const nearly = [fromGitHub("big.ts", "x".repeat(60000)), file("a.js", "javascript", "x".repeat(20000)), file("b.js", "javascript", "x".repeat(20000))]
+  assert.ok("files" in parseFiles(nearly))
+  assert.deepEqual(parseFiles([...nearly, file("c.js", "javascript", "x")]), { error: POST_TOO_LONG })
+})
+
+test("refuses marks outside the file, backwards marks and marks on written files", () => {
+  const code = "one\ntwo\nthree"
+  for (const marked of [{ from: 0, to: 1 }, { from: 2, to: 4 }, { from: 3, to: 2 }, { from: 1.5, to: 2 }, { from: "1", to: 2 }, { from: 1 }, "1-2"]) {
+    assert.deepEqual(parseFiles([fromGitHub("a.ts", code, { marked })]), { error: BAD_MARKS }, JSON.stringify(marked))
+  }
+  assert.deepEqual(parseFiles([{ ...file("a.js", "javascript", code), marked: { from: 1, to: 1 } }]), { error: MARKS_GITHUB_ONLY })
+})
+
+test("counts a GitHub file's lines the way the code view does: Windows line endings, a final line break", () => {
+  const crlf = "one\r\ntwo\r\nthree\r\n"
+  assert.ok("files" in parseFiles([fromGitHub("a.ts", crlf, { marked: { from: 3, to: 3 } })]))
+  assert.deepEqual(parseFiles([fromGitHub("a.ts", crlf, { marked: { from: 4, to: 4 } })]), { error: BAD_MARKS })
+})
+
+test("refuses a GitHub source that isn't a whole one", () => {
+  const broken = [
+    { ...source(), commit: "main" },
+    { ...source(), commit: COMMIT.toUpperCase() },
+    { ...source(), commit: COMMIT.slice(0, 7) },
+    { ...source(), owner: "-octo" },
+    { ...source(), owner: "o".repeat(40) },
+    { ...source(), repo: ".." },
+    { ...source(), repo: "has space" },
+    { ...source(), path: "" },
+    { ...source(), path: "../secrets.txt" },
+    { ...source(), path: "lib//app.ts" },
+    { ...source(), path: "/lib/app.ts" },
+    { ...source(), path: "lib/\u0000.ts" },
+    { ...source(), path: "x".repeat(1001) },
+    { owner: "octo", repo: "r", commit: COMMIT },
+    "octo/r",
+  ]
+  for (const github of broken) {
+    assert.deepEqual(parseFiles([{ name: "a.ts", language: "typescript", code: "x", github }]), { error: BAD_SOURCE }, JSON.stringify(github))
+  }
+  assert.deepEqual(parseGitHubSource(source("docs/Getting Started/日本.md")), source("docs/Getting Started/日本.md"))
+})
+
+test("two GitHub files with one name need one renamed", () => {
+  const two = [fromGitHub("index.ts", "a"), { ...fromGitHub("index.ts", "b"), github: source("other/index.ts") }]
+  assert.deepEqual(parseFiles(two), { error: SAME_NAME })
+  assert.ok("files" in parseFiles([two[0], { ...two[1], name: "other-index.ts" }]))
+})
+
+test("opens a marked file on its mark with 3 lines either side, inside the file", () => {
+  assert.deepEqual(markedWindow(126, { from: 80, to: 85 }), { first: 77, last: 88 })
+  assert.deepEqual(markedWindow(126, { from: 1, to: 2 }), { first: 1, last: 5 })
+  assert.deepEqual(markedWindow(126, { from: 125, to: 126 }), { first: 122, last: 126 })
+  assert.deepEqual(markedWindow(1, { from: 1, to: 1 }), { first: 1, last: 1 })
+  assert.deepEqual(markedWindow(10, { from: 1, to: 10 }), { first: 1, last: 10 })
+})
+
+test("marks lines by clicking their numbers", () => {
+  assert.deepEqual(markFromClick(null, 5, false), { from: 5, to: 5 })
+  assert.equal(markFromClick({ from: 5, to: 5 }, 5, false), null)
+  assert.deepEqual(markFromClick({ from: 5, to: 9 }, 7, false), { from: 7, to: 7 })
+  assert.deepEqual(markFromClick({ from: 5, to: 5 }, 9, true), { from: 5, to: 9 })
+  assert.deepEqual(markFromClick({ from: 5, to: 9 }, 2, true), { from: 2, to: 5 })
+  assert.deepEqual(markFromClick(null, 3, true), { from: 3, to: 3 })
+})
+
+test("reads the Lines boxes", () => {
+  assert.deepEqual(parseMarkInput("83", "85"), { from: 83, to: 85 })
+  assert.deepEqual(parseMarkInput("85", "83"), { from: 83, to: 85 })
+  assert.deepEqual(parseMarkInput(" 83 ", ""), { from: 83, to: 83 })
+  assert.deepEqual(parseMarkInput("", "7"), { from: 7, to: 7 })
+  assert.equal(parseMarkInput("", " "), null)
+  for (const [a, b] of [["x", "2"], ["0", "3"], ["1.5", "2"], ["-1", "2"], ["2", "e3"]]) {
+    assert.equal(parseMarkInput(a, b), undefined, `${a} to ${b}`)
+  }
+})
+
+test("says which lines are marked, for screen readers", () => {
+  assert.equal(markedLabel({ from: 83, to: 85 }), "Marked lines 83 to 85")
+  assert.equal(markedLabel({ from: 9, to: 9 }), "Marked line 9")
 })
