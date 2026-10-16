@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import mongoose from "mongoose"
+import { HttpError } from "@/lib/http-error"
 
 // Upper bounds for user-supplied text. Check them before running a regex
 // over the value or writing it to the database.
@@ -42,6 +43,7 @@ export function isHttpUrl(value: string) {
 }
 
 export function handleRouteError(error: unknown, label: string, fallback: string) {
+  if (error instanceof HttpError) return jsonError(error.message, error.status)
   if (error instanceof mongoose.Error.ValidationError) {
     const first = Object.values(error.errors)[0]
     return jsonError(first?.message || "Invalid input", 400)
